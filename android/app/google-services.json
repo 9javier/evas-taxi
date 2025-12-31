@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "628462975918",
+    "project_id": "taxiusa-atlanta",
+    "storage_bucket": "taxiusa-atlanta.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:628462975918:android:acc6704f63433549c9663f",
+        "android_client_info": {
+          "package_name": "com.example.evas_taxi_driver"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB7mUbWB1NVSa_HLOM2f1rvc_h8p-Vsoyk"
+        },
+        {
+          "current_key": "AIzaSyDElBu8oLUbkYFD4ptEy-6vpIfxaTOK3Xs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:628462975918:android:2a5b48a60b8de8abc9663f",
+        "android_client_info": {
+          "package_name": "com.taxiusa.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB7mUbWB1NVSa_HLOM2f1rvc_h8p-Vsoyk"
+        },
+        {
+          "current_key": "AIzaSyDElBu8oLUbkYFD4ptEy-6vpIfxaTOK3Xs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
