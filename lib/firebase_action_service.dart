@@ -42,7 +42,7 @@ class FirebaseActionService {
     }
   }
 
-  /// Llama al endpoint Cloud Function para notificar que el conductor llegó o está cerca.
+  /// Llama al endpoint Cloud Function para notificar que el conductor llegó (menos de 70 meters).
   /// Env.notifyDriverArrivedUrl debe estar configurado en config.dart
   static Future<bool> notifyDriverArrived(String travelId, String driverId) async {
     if (travelId.isEmpty || driverId.isEmpty) return false;
@@ -51,6 +51,34 @@ class FirebaseActionService {
           .post(Uri.parse(Env.notifyDriverArrivedUrl),
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode({'travelId': travelId, 'driverId': driverId}))
+          .timeout(const Duration(seconds: 8));
+      return resp.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+  /// Llama al endpoint Cloud Function para notificar que el conductor está cerca (menos de 700 meters).
+  /// Env.notifyDriverNearUrl debe estar configurado en config.dart
+  static Future<bool> notifyDriverNear(String travelId, String driverId) async {
+    if (travelId.isEmpty || driverId.isEmpty) return false;
+    try {
+      final resp = await http
+          .post(Uri.parse(Env.notifyDriverNearUrl),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'travelId': travelId, 'driverId': driverId}))
+          .timeout(const Duration(seconds: 8));
+      return resp.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+  static Future<bool> updateTravelStatus(String travelId, String status) async {
+    if (travelId.isEmpty || status.isEmpty) return false;
+    try {
+      final resp = await http
+          .post(Uri.parse(Env.updateTravelStatusUrl),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({'travelId': travelId, 'status': status}))
           .timeout(const Duration(seconds: 8));
       return resp.statusCode == 200;
     } catch (e) {

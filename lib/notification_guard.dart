@@ -6,7 +6,7 @@ class NotificationGuard {
   static final Set<String> _recent = {};
   static Timer? _timer;
   static Duration _ttl = const Duration(minutes: 1);
-  static bool debug = false; // activar para logs
+  static bool debug = true; // activar para logs
 
   static bool tryAdd(String id) {
     final normalized = id.trim().toLowerCase();

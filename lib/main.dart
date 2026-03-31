@@ -8,12 +8,13 @@ import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'notification_guard.dart';
 import 'app_state.dart';
+import 'notification_center.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'firebase_action_service.dart';
 import 'welcome_screen.dart';
+import 'travel_notification_handler.dart';
 
-// Handler de mensajes en background/terminated (debe ser top-level)
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp();
   try {
@@ -27,211 +28,9 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   }
 }
 
-final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-
 bool travelDialogActive = false;
 String? lastTravelIdHandled;
 
-// Cola temporal si navigator aún no está listo
-final List<Map<String, dynamic>> pendingTravelNotificationsQueue = [];
-
-void _tryHandlePendingNotifications() {
-  final ctx = navigatorKey.currentContext;
-  if (ctx == null) return;
-  final now = DateTime.now();
-  final toProcess = pendingTravelNotificationsQueue
-      .where((item) => now.difference(item['timestamp']).inSeconds <= 30)
-      .toList();
-  pendingTravelNotificationsQueue.removeWhere((item) => toProcess.contains(item));
-  for (final item in toProcess) {
-    handleTravelNotification(item['id'] as String, ctx, item['phone'] as String?);
-  }
-}
-
-Future<void> playAlertSound() async {
-  final player = AudioPlayer();
-  try {
-    await player.setVolume(1.0);
-    await player.play(AssetSource('sound1.mp3'));
-  } catch (_) {
-    // No hacer nada si falla reproducir
-  }
-}
-
-Future<void> showTravelRequestDialog(BuildContext context, String travelId, String? phoneNumber) async {
-  // Verificar existencia en Firestore antes de mostrar
-  DocumentSnapshot<Map<String, dynamic>>? travelDoc;
-  try {
-    travelDoc = await FirebaseFirestore.instance.collection('requestTravel').doc(travelId).get();
-    if (!travelDoc.exists) return;
-  } catch (_) {
-    return;
-  }
-
-  final data = travelDoc.data() ?? {};
-  // Helper local para parsear coordenadas en varios formatos
-  LatLng? parseCoord(dynamic v) {
-    if (v == null) return null;
-    if (v is GeoPoint) return LatLng(v.latitude, v.longitude);
-    if (v is Map) {
-      final lat = v['lat'] ?? v['latitude'] ?? v['latitud'];
-      final lng = v['lng'] ?? v['longitude'] ?? v['lngitud'];
-      final latD = lat is num ? lat.toDouble() : (lat is String ? double.tryParse(lat) : null);
-      final lngD = lng is num ? lng.toDouble() : (lng is String ? double.tryParse(lng) : null);
-      if (latD != null && lngD != null) return LatLng(latD, lngD);
-    }
-    if (v is List && v.length >= 2) {
-      final lat = v[0];
-      final lng = v[1];
-      final latD = lat is num ? lat.toDouble() : (lat is String ? double.tryParse(lat) : null);
-      final lngD = lng is num ? lng.toDouble() : (lng is String ? double.tryParse(lng) : null);
-      if (latD != null && lngD != null) return LatLng(latD, lngD);
-    }
-    return null;
-  }
-
-  // Obtener descripción de origen y destino de forma robusta
-  String originDesc = '';
-  String destinoDesc = '';
-  if (data.containsKey('description') && data['description'] is Map) {
-    final desc = data['description'] as Map;
-    originDesc = desc['origin']?.toString() ?? desc['pickup']?.toString() ?? '';
-    destinoDesc = desc['destination']?.toString() ?? desc['destino']?.toString() ?? '';
-  }
-  if (originDesc.isEmpty) {
-    originDesc = data['originDesc']?.toString() ?? data['pickupDesc']?.toString() ?? 'Origen no especificado';
-  }
-  if (destinoDesc.isEmpty) {
-    destinoDesc = data['destinoDesc']?.toString() ?? data['destinationDesc']?.toString() ?? 'Destino no especificado';
-  }
-
-  final LatLng? originLatLng = parseCoord(data['origin'] ?? data['origen'] ?? data['pickup']);
-  final LatLng? destLatLng = parseCoord(data['destino'] ?? data['destination'] ?? data['dest'] ?? data['to']);
-
-  if (travelDialogActive) return;
-  if (lastTravelIdHandled == travelId) return;
-  travelDialogActive = true;
-
-  await playAlertSound();
-
-  if (!context.mounted) {
-    travelDialogActive = false;
-    return;
-  }
-
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) {
-      return Dialog(
-        insetPadding: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: SizedBox(
-          width: MediaQuery.of(context).size.width,
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Encabezado: título centrado y botón de cierre ajustado a la derecha
-                SizedBox(
-                  height: 40,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      const Text(
-                        'Nueva solicitud de Viaje',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        textAlign: TextAlign.center,
-                      ),
-                      Positioned(
-                        right: 0,
-                        child: IconButton(
-                          icon: const Icon(Icons.close, color: Colors.red),
-                          tooltip: 'Cerrar',
-                          onPressed: () {
-                            travelDialogActive = false;
-                            if (Navigator.of(context).canPop()) Navigator.of(context).pop();
-                          },
-                          // Reducir área táctil y evitar que empuje el layout
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-                          iconSize: 22,
-                          splashRadius: 18,
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                if (originDesc.isNotEmpty) const SizedBox(height: 8),
-                if (originDesc.isNotEmpty) Text('Origen: $originDesc', style: const TextStyle(fontSize: 12)),
-                if (destinoDesc.isNotEmpty) const SizedBox(height: 8),
-                if (destinoDesc.isNotEmpty) Text(('Destino: $destinoDesc'), style: const TextStyle(fontSize: 12)),
-                const SizedBox(height: 12),
-                // Mapa preview: muestra origen -> destino
-                SizedBox(
-                  height: 200,
-                  child: originLatLng != null || destLatLng != null
-                      ? MapPreview(origin: originLatLng, destination: destLatLng)
-                      : Center(child: Text('No hay coordenadas disponibles', style: TextStyle(color: Colors.grey[700]))),
-                ),
-                const SizedBox(height: 32),
-                CustomSlideAction(
-                  text: 'Desliza para aceptar',
-                  textStyle: const TextStyle(fontSize: 18, color: Colors.white),
-                  outerColor: Colors.green,
-                  innerColor: Colors.white,
-                  height: 60,
-                  sliderButtonIcon: const Icon(Icons.arrow_forward, color: Colors.green),
-                  onSubmit: () async => await _handleSlideAccept(context, travelId),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    },
-  );
-}
-
-Future<void> _handleSlideAccept(BuildContext context, String travelId) async {
-  // Marcar el id como manejado para evitar duplicados inmediatamente.
-  lastTravelIdHandled = travelId;
-
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No estás autenticado.')));
-    }
-    return;
-  }
-
-  try {
-    final accepted = await FirebaseActionService.acceptTravel(travelId, user.uid);
-    if (accepted) {
-      // Activar travel en el MainTabsScreen via notifiers (mantener tabs)
-      final prev = activeTravelIdNotifier.value;
-      activeTravelIdNotifier.value = travelId;
-      // Si el valor no cambió (estaba igual), forzar notificación de manera segura
-      if (prev == travelId) {
-        activeTravelIdNotifier.value = null;
-        Future.microtask(() => activeTravelIdNotifier.value = travelId);
-      }
-      tabsIndexNotifier.value = 0;
-    } else {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo aceptar el viaje. Intenta de nuevo.')));
-      }
-    }
-  } catch (e) {
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al aceptar el viaje.')));
-    }
-  }
-  // NOTA: CustomSlideAction cierra el diálogo tras onSubmit; no hacemos pop aquí.
-}
 
 void handleTravelNotification(String travelId, BuildContext context, String? phoneNumber) {
   if (travelId.isEmpty) return;
@@ -246,6 +45,9 @@ Future<void> main() async {
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   await FirebaseMessaging.instance.requestPermission();
 
+  // Registrar handler para procesar notificaciones pendientes desde notification_center
+  registerPendingHandler(handleTravelNotification);
+
   FirebaseMessaging.onMessage.listen((RemoteMessage message) {
     final data = message.data;
     final type = data['type'] ?? '';
@@ -255,8 +57,7 @@ Future<void> main() async {
       if (ctx != null) {
         handleTravelNotification(travelId, ctx, null);
       } else {
-        pendingTravelNotificationsQueue.add({'id': travelId, 'phone': null, 'timestamp': DateTime.now()});
-        Future.delayed(const Duration(milliseconds: 500), _tryHandlePendingNotifications);
+        addPendingNotification(travelId, null);
       }
     }
   });
@@ -270,8 +71,7 @@ Future<void> main() async {
       if (ctx != null) {
         handleTravelNotification(travelId, ctx, null);
       } else {
-        pendingTravelNotificationsQueue.add({'id': travelId, 'phone': null, 'timestamp': DateTime.now()});
-        Future.delayed(const Duration(milliseconds: 500), _tryHandlePendingNotifications);
+        addPendingNotification(travelId, null);
       }
     }
   });

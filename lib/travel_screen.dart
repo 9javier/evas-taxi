@@ -79,7 +79,6 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   // Indica si el conductor ya recogió al pasajero (true solo después de pulsar "Recoger al Pasajero").
   bool _passengerPickedUp = false;
   // Flag para evitar múltiples notificaciones "driver arrived" por viaje
-  bool _arrivalNotified = false;
   // Evita recentrar el mapa más de una vez al abrir la pantalla
   bool _mapCenteredInitially = false;
   // Evita múltiples restauraciones simultáneas
@@ -191,6 +190,9 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
 
         // Revisar proximidad y notificar al pasajero si aún no lo hemos hecho
         try {
+          // El pasajero esta cercas
+          _checkAndNotifyPasengerNear();
+          // LLegó el Driver
           _checkAndNotifyArrival();
         } catch (e) {
           debugPrint('Error checkAndNotifyArrival: $e');
@@ -242,6 +244,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   }
 
   Future<void> _startNavigation() async {
+    // LLamar al servicio de firebase que notifica al pasajero que el conductor inició la navegación
     if (!mounted) return; // evitar continuar si ya se desmontó
     // El objetivo al iniciar el modo 'Recoger al Pasajero' debe ser el destino final
     // del pasajero (dropoff/destination). Si no existe, usar la ubicación del pasajero.
@@ -251,6 +254,15 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     // Intentar leer la ubicación del driver desde la colección 'drivers' en Firestore
     try {
       if (_driverId != null && _driverId!.isNotEmpty) {
+       //await FirebaseActionService.notifyDriverArrived((widget.travelId ?? activeTravelIdNotifier.value).toString(), _driverId.toString());
+        // Actualizar el status del viaje a IN_PROGRESS directamente en Firestore
+        final travelId = (widget.travelId ?? activeTravelIdNotifier.value).toString();
+        if (travelId.isNotEmpty) {
+          await FirebaseFirestore.instance
+              .collection('travels')
+              .doc(travelId)
+              .update({'viaje_status': 'in_progress'});
+        }
         final doc = await FirebaseFirestore.instance.collection('drivers').doc(_driverId).get();
         if (doc.exists) {
           final data = doc.data();
@@ -626,6 +638,16 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     } finally {
       _restoring = false;
     }
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>?> getTravel(travelId) async {
+    DocumentSnapshot<Map<String, dynamic>> doc = await FirebaseFirestore.instance.collection('travels').doc(travelId).get();
+    if (!doc.exists) {
+      return null;
+    }
+    final data = doc.data() ?? {};
+    print('Travel data: $data');
+    return doc;
   }
 
   Future<void> _loadTravelData(String travelId) async {
@@ -1198,7 +1220,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                       padding: const EdgeInsets.only(bottom: 8.0),
                       child: Text(
                         _distanceStatusLabel(),
-                        style: TextStyle(fontSize: 13, color: (!_navigating && _isNearPassenger() ? Colors.green[700] : Colors.grey[700])),
+                        style: TextStyle(fontSize: 13, color: (!_navigating && _isNearPassenger(thresholdMeters: 70) ? Colors.green[700] : Colors.grey[700])),
                       ),
                     ),
                     // Mostrar botón mientras NO se ha recogido al pasajero.
@@ -1213,7 +1235,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                             color: Colors.white,
                           ),
                         ),
-                        onPressed: _isNearPassenger() ? () {
+                        onPressed: _isNearPassenger(thresholdMeters: 70) ? () {
                           // Al recoger: activar onTrip y navegación hacia destino final.
                           setState(() {
                             _passengerPickedUp = true;
@@ -1225,7 +1247,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                           hidePassengerMarker();
                           _startNavigation();
                         } : null,
-                        child: const Text('Recoger al Pasajero'),
+                        child: const Text('INICIAR VIAJE'),
                       ),
                   ],
                 ),
@@ -1302,7 +1324,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   }
 
   /// Retorna true si la ubicación actual del conductor está a <= [thresholdMeters] del pasajero.
-  bool _isNearPassenger({double thresholdMeters = 200}) {
+  bool _isNearPassenger({double thresholdMeters = 50}) {
     if (_passengerLatLng == null) return false;
     if (_currentPosition == null) return false; // no tenemos ubicación real todavía
     final dist = Geolocator.distanceBetween(
@@ -1347,7 +1369,6 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       _polylines.clear();
       _sheetExpanded = false;
       _navigating = false;
-      _arrivalNotified = false;
     });
     if (driverOnTripNotifier.value) driverOnTripNotifier.value = false;
   }
@@ -1356,23 +1377,55 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   /// llama al servicio notifyDriverArrived una sola vez por viaje.
   Future<void> _checkAndNotifyArrival() async {
     // Ya notificado: no hacer nada
-    if (_arrivalNotified) return;
+    if (widget.travelId == null) return;
     // Debe existir posición de pasajero y del conductor
     if (_passengerLatLng == null || _currentPosition == null) return;
-    if (!_isNearPassenger()) return;
+    // Driver has arrived
+    if (_isNearPassenger(thresholdMeters: 70)) return;
+
+    // Verificar si ya se notificó la llegada para este viaje
+    final dataTravel = await getTravel(widget.travelId);
+    if (dataTravel == null || dataTravel['viaje_status'] == 'driver_arrived') return;
+    if (dataTravel['viaje_status'] != 'accepted') return;
 
     // Evitar llamadas sin travelId o driverId
     final travelId = widget.travelId ?? activeTravelIdNotifier.value ?? '';
     final driverId = _driverId ?? '';
     if (travelId.isEmpty || driverId.isEmpty) return;
-
-    // Marcar como notificado inmediatamente para garantizar que
-    // .solo se haga una vez
-    _arrivalNotified = true;
-    debugPrint('notifyDriverArrived called for travel=$travelId driver=$driverId');
-
     try {
       final ok = await FirebaseActionService.notifyDriverArrived(travelId, driverId);
+      if (!ok) {
+        debugPrint('notifyDriverArrived API returned failure for travel=$travelId');
+      }
+    } catch (e) {
+      debugPrint('notifyDriverArrived exception: $e');
+    }
+  }
+
+  /// Verifica si el conductor está cerca del pasajero y, si no se ha notificado antes,
+  /// llama al servicio notifyDriverArrived una sola vez por viaje.
+  Future<void> _checkAndNotifyPasengerNear() async {
+    // Ya notificado: no hacer nada
+    if (widget.travelId == null) return;
+    // Debe existir posición de pasajero y del conductor
+    if (_passengerLatLng == null || _currentPosition == null) return;
+    // Driver es Near Passenger
+    if (!_isNearPassenger(thresholdMeters: 700)) return;
+
+    // Verificar si ya se notificó la llegada para este viaje
+    final dataTravel = await getTravel(widget.travelId);
+    if (dataTravel == null || dataTravel['viaje_status'] == 'driver_near') return;
+    if (dataTravel['viaje_status'] != 'accepted') return;
+
+    // Evitar llamadas sin travelId o driverId
+    final travelId = widget.travelId ?? activeTravelIdNotifier.value ?? '';
+    final driverId = _driverId ?? '';
+    if (travelId.isEmpty || driverId.isEmpty) return;
+    try {
+      final ok = await FirebaseActionService.notifyDriverNear(travelId, driverId);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Se envia notificacion al pasajero, Esta cerca el conductor')),
+      );
       if (!ok) {
         debugPrint('notifyDriverArrived API returned failure for travel=$travelId');
       }

@@ -4,8 +4,12 @@ import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:geolocator/geolocator.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'main_tabs_screen.dart';
+import 'travel_notification_handler.dart';
+import 'notification_guard.dart';
+import 'notification_center.dart';
 
 class WelcomeScreen extends StatefulWidget {
   final String phoneNumber;
@@ -22,11 +26,77 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   bool _permissionDenied = false;
   bool _permissionPermanentlyDenied = false;
 
+  // Subscriptions para listeners de FCM
+  StreamSubscription<RemoteMessage>? _onMessageSub;
+  StreamSubscription<RemoteMessage>? _onMessageOpenedAppSub;
+
   @override
   void initState() {
     super.initState();
+    // Registrar listeners de notificaciones
+    _setupNotificationListeners();
     // Ejecutar la inicialización después del primer frame para poder mostrar diálogos
-    WidgetsBinding.instance.addPostFrameCallback((_) => _initialize());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initialize();
+      // Intentar procesar cualquier notificación pendiente que se haya encolado
+      tryHandlePendingNotifications();
+    });
+  }
+
+  void _setupNotificationListeners() {
+    // Manejar notificación que abrió la app desde estado terminated
+    FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+      if (message == null) return;
+      try {
+        final data = message.data;
+        final type = data['type'] ?? '';
+        if (type == 'NEW_TRAVEL') {
+          final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
+          if (travelId.isEmpty) return;
+          if (!NotificationGuard.tryAdd(travelId)) return;
+          // Usar una pequeña demora para asegurarnos que el contexto está totalmente listo
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (!mounted) return;
+            showTravelRequestDialog(context, travelId, (data['phone'] ?? data['phoneNumber'])?.toString());
+          });
+        }
+      } catch (_) {}
+    });
+
+    // Mensajes en foreground
+    _onMessageSub = FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      try {
+        final data = message.data;
+        final type = data['type'] ?? '';
+        if (type == 'NEW_TRAVEL') {
+          final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
+          if (travelId.isEmpty) return;
+          if (!NotificationGuard.tryAdd(travelId)) return;
+          showTravelRequestDialog(context, travelId, (data['phone'] ?? data['phoneNumber'])?.toString());
+        }
+      } catch (_) {}
+    });
+
+    // Mensaje que abre la app (tap)
+    _onMessageOpenedAppSub = FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      try {
+        final data = message.data;
+        final type = data['type'] ?? '';
+        if (type == 'NEW_TRAVEL') {
+          final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
+          if (travelId.isEmpty) return;
+          if (!NotificationGuard.tryAdd(travelId)) return;
+          showTravelRequestDialog(context, travelId, (data['phone'] ?? data['phoneNumber'])?.toString());
+        }
+      } catch (_) {}
+    });
+  }
+
+  @override
+  void dispose() {
+    _onMessageSub?.cancel();
+    _onMessageOpenedAppSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _initialize() async {
