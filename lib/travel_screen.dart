@@ -17,6 +17,17 @@ import 'driver_location_service.dart';
 import 'firebase_action_service.dart';
 import 'package:flutter/rendering.dart';
 
+// ── Paleta Dark Premium (alineada con el popup de solicitud de viaje) ────────
+const Color _tsCardBg    = Color(0xFF1E1E26);
+const Color _tsSurface   = Color(0xFF2A2A34);
+const Color _tsAccent    = Color(0xFF6366F1);
+const Color _tsOriginDot = Color(0xFF6EE7B7);
+const Color _tsDestDot   = Color(0xFFEF4444);
+const Color _tsRouteLine = Color(0xFF3F3F46);
+const Color _tsTextMain  = Colors.white;
+const Color _tsTextMuted = Color(0xFFA0A0AB);
+const Color _tsHandle    = Color(0xFF3F3F46);
+
 // Estilo de mapa limpio (constante a nivel de archivo) — usado por GoogleMap.style
 const String _cleanMapStyle = '''[
   {"featureType":"poi","elementType":"all","stylers":[{"visibility":"off"}]},
@@ -57,6 +68,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   final Set<Polyline> _polylines = {};
   LatLng? _destinationLatLng;
   LatLng? _passengerLatLng;
+  String _passengerName = 'Pasajero';
   BitmapDescriptor? _passengerIcon;
   BitmapDescriptor? _driverIcon;
   // Control de visibilidad del marcador del pasajero
@@ -95,6 +107,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   DateTime? _lastUserInteractionAt;
   bool _programmaticCameraMove = false;
   static const int _userInteractionPauseSecs = 12;
+  bool _refreshing = false; // bloquea doble-tap en botón refresh
 
   @override
   void initState() {
@@ -714,6 +727,20 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         if (!doc.exists) return;
       }
       final data = doc.data() ?? {};
+
+      // Cargar nombre del pasajero desde users/{userId}
+      final userId = data['userId']?.toString() ?? '';
+      if (userId.isNotEmpty) {
+        try {
+          final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
+          if (userDoc.exists) {
+            final ud = userDoc.data() ?? {};
+            final name = (ud['name'] ?? ud['nombre'] ?? ud['displayName'] ?? '').toString().trim();
+            if (name.isNotEmpty && mounted) _safeSetState(() => _passengerName = name);
+          }
+        } catch (_) {}
+      }
+
       try {
         final String viajeStatus = (data['viaje_status'] ?? '').toString();
         // in_progress: pasajero ya recogido, conductor en ruta al destino
@@ -1139,36 +1166,37 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             }
           },
         ),
-        // Overlay superior con la distancia en tiempo real
-        if ((_passengerLatLng != null || _destinationLatLng != null))
+        // Overlay superior — pill oscuro con distancia al pasajero / destino
+        if ((_passengerLatLng != null || _destinationLatLng != null) && _currentPosition != null)
           Positioned(
-            top: MediaQuery.of(context).padding.top + 10,
-            left: 12,
-            right: 12,
+            top: MediaQuery.of(context).padding.top + 12,
+            left: 56, // deja espacio para el botón refresh a la derecha
+            right: 56,
+            child: Center(child: _buildDistancePill()),
+          ),
+
+        // Botón de refresh — esquina superior derecha
+        Positioned(
+          top: MediaQuery.of(context).padding.top + 8,
+          right: 10,
+          child: GestureDetector(
+            onTap: _refresh,
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              width: 42, height: 42,
               decoration: BoxDecoration(
-                color: const Color.fromRGBO(255, 255, 255, 0.95),
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2))],
+                color: _tsCardBg,
+                shape: BoxShape.circle,
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 10, offset: const Offset(0, 2))],
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.max,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.my_location, size: 16, color: Colors.black87),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _distanceOverlayLabel(),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black87),
-                    ),
-                  ),
-                ],
-              ),
+              child: _refreshing
+                  ? const Padding(
+                      padding: EdgeInsets.all(11),
+                      child: CircularProgressIndicator(strokeWidth: 2.2, color: _tsOriginDot),
+                    )
+                  : const Icon(Icons.refresh_rounded, color: Colors.white, size: 20),
             ),
           ),
+        ),
         Positioned(
            left: 0,
            right: 0,
@@ -1187,18 +1215,17 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                    _updateMapPadding();
                  }
                },
-              child: Material(
-                elevation: 8,
-                borderRadius: BorderRadius.circular(14),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: _tsCardBg,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.45), blurRadius: 24, offset: const Offset(0, -4))],
+                ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
                   child: SizedBox(
                     height: sheetHeight,
-                    child: Container(
-                      padding: const EdgeInsets.only(top: 10, bottom: 10),
-                      color: Colors.white,
-                      child: _buildPersistentSheetContent(),
-                    ),
+                    child: _buildPersistentSheetContent(),
                   ),
                 ),
               ),
@@ -1236,185 +1263,214 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
 
   Widget _buildPersistentSheetContent() {
     final hasTravel = _destinationLatLng != null || _passengerLatLng != null;
-    final passengerText = _passengerAddress ?? (_passengerLatLng != null ? '${_passengerLatLng!.latitude.toStringAsFixed(6)}, ${_passengerLatLng!.longitude.toStringAsFixed(6)}' : 'Sin dirección');
-    final destinationText = _destinationAddress ?? (_dropoffLatLng != null ? '${_dropoffLatLng!.latitude.toStringAsFixed(6)}, ${_dropoffLatLng!.longitude.toStringAsFixed(6)}' : 'Sin destino');
+    final passengerText = _passengerAddress ??
+        (_passengerLatLng != null
+            ? '${_passengerLatLng!.latitude.toStringAsFixed(5)}, ${_passengerLatLng!.longitude.toStringAsFixed(5)}'
+            : 'Origen no especificado');
+    final destinationText = _destinationAddress ??
+        (_dropoffLatLng != null
+            ? '${_dropoffLatLng!.latitude.toStringAsFixed(5)}, ${_dropoffLatLng!.longitude.toStringAsFixed(5)}'
+            : 'Destino no especificado');
+
+    // Etiqueta y color del estado del viaje
+    String statusLabel;
+    Color statusColor;
+    if (_navigating && _passengerPickedUp) {
+      statusLabel = 'Viaje en progreso';
+      statusColor = _tsAccent;
+    } else if (_notifiedDriverArrived) {
+      statusLabel = 'Has llegado';
+      statusColor = _tsOriginDot;
+    } else if (_notifiedDriverNear) {
+      statusLabel = 'Cerca del pasajero';
+      statusColor = const Color(0xFFF59E0B);
+    } else if (hasTravel) {
+      statusLabel = 'En camino';
+      statusColor = _tsTextMuted;
+    } else {
+      statusLabel = '';
+      statusColor = _tsTextMuted;
+    }
 
     return SingleChildScrollView(
       physics: _sheetExpanded ? const BouncingScrollPhysics() : const NeverScrollableScrollPhysics(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[350], borderRadius: BorderRadius.circular(4)))),
+          // ── Handle ─────────────────────────────────────────────────────────
+          const SizedBox(height: 12),
+          Center(
+            child: Container(
+              width: 40, height: 4,
+              decoration: BoxDecoration(color: _tsHandle, borderRadius: BorderRadius.circular(2)),
+            ),
           ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
+          const SizedBox(height: 16),
+
+          if (!hasTravel) ...[
+            // ── Sin viaje ───────────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40, height: 40,
+                    decoration: BoxDecoration(color: _tsSurface, shape: BoxShape.circle),
+                    child: const Icon(Icons.hourglass_empty_rounded, color: _tsTextMuted, size: 20),
+                  ),
+                  const SizedBox(width: 14),
+                  const Text('Sin viaje activo', style: TextStyle(color: _tsTextMuted, fontSize: 16, fontWeight: FontWeight.w500)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ] else ...[
+            // ── Header: avatar + nombre + estado ────────────────────────────
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _buildPassengerAvatar(),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _passengerName,
+                          style: const TextStyle(color: _tsTextMain, fontSize: 18, fontWeight: FontWeight.w700),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 5),
+                        if (statusLabel.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: statusColor.withOpacity(0.4), width: 1),
+                            ),
+                            child: Text(statusLabel, style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.w600)),
+                          ),
+                      ],
+                    ),
+                  ),
+                  // Botón expandir / colapsar
+                  GestureDetector(
                     onTap: hideOrExpand,
-                    child: Text(
-                      hasTravel
-                          ? (_navigating ? 'Viaje en Progreso...' : 'Recoger al Pasajero')
-                          : 'Sin Viaje',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    child: Container(
+                      width: 34, height: 34,
+                      decoration: BoxDecoration(color: _tsSurface, shape: BoxShape.circle),
+                      child: Icon(
+                        _sheetExpanded ? Icons.keyboard_arrow_down_rounded : Icons.keyboard_arrow_up_rounded,
+                        size: 20, color: _tsTextMuted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            if (_sheetExpanded) ...[
+              const SizedBox(height: 16),
+
+              // ── Tarjeta de ruta ──────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  decoration: BoxDecoration(
+                    color: _tsSurface,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Línea visual origen → destino
+                        Column(
+                          mainAxisSize: MainAxisSize.max,
+                          children: [
+                            Container(width: 10, height: 10, decoration: const BoxDecoration(color: _tsOriginDot, shape: BoxShape.circle)),
+                            Expanded(child: Center(child: Container(width: 2, color: _tsRouteLine))),
+                            Container(width: 10, height: 10, decoration: BoxDecoration(color: _tsDestDot, borderRadius: BorderRadius.circular(2))),
+                          ],
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(passengerText,
+                                  style: const TextStyle(color: _tsTextMain, fontSize: 13, fontWeight: FontWeight.w500),
+                                  maxLines: 2, overflow: TextOverflow.ellipsis),
+                              const SizedBox(height: 14),
+                              Text(destinationText,
+                                  style: const TextStyle(color: _tsTextMuted, fontSize: 13),
+                                  maxLines: 2, overflow: TextOverflow.ellipsis),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
-                IconButton(
-                  icon: Icon(_sheetExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up),
-                  onPressed: () {
-                   hideOrExpand();
-                  },
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (hasTravel && _sheetExpanded) ...[
-            SizedBox(
-              width: double.infinity,
-              child: Card(
-                // Margen horizontal de 2px y color más blanco
-                margin: const EdgeInsets.symmetric(horizontal: 2.0),
-                color: Colors.white,
-                elevation: 1,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                child: Padding(
-                  padding: const EdgeInsets.all(10.0),
-                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    // Columna vertical con icono de inicio, línea y icono de destino
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.circle, size: 10, color: Colors.black87),
-                        Container(width: 2, height: 28, margin: const EdgeInsets.symmetric(vertical: 4), color: Colors.grey[400]),
-                        Icon(Icons.location_on, size: 16, color: Colors.redAccent),
-                      ],
-                    ),
-                    const SizedBox(width: 12),
-                    // Textos compactos para dirección pasajero y destino
-                    Expanded(
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                        Text(passengerText, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w400), maxLines: 2, overflow: TextOverflow.ellipsis),
-                        const SizedBox(height: 8),
-                        Text(destinationText, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w400), maxLines: 2, overflow: TextOverflow.ellipsis),
-                      ]),
-                    ),
-                  ]),
-                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14.0),
-              child: SizedBox(
-                width: double.infinity,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8.0),
-                      child: Text(
-                        _distanceStatusLabel(),
-                        style: TextStyle(fontSize: 13, color: (!_navigating && _isNearPassenger(thresholdMeters: 30) ? Colors.green[700] : Colors.grey[700])),
-                      ),
-                    ),
-                    // Mostrar botón mientras NO se ha recogido al pasajero.
-                    if (!_passengerPickedUp)
-                      OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white, // texto y iconos en blanco
-                          iconColor: Colors.white,
-                          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
-                          backgroundColor: Colors.blue[400],
-                          side: BorderSide(
-                            color: Colors.white,
-                          ),
-                        ),
-                        onPressed: _isNearPassenger(thresholdMeters: 30) ? () {
-                          // Al recoger: activar onTrip y navegación hacia destino final.
-                          setState(() {
-                            _passengerPickedUp = true;
-                            _showPassengerMarker = false; // ocultar definitivamente el marcador del pasajero
-                            _markers.removeWhere((m) => m.markerId.value == 'passenger');
-                          });
-                          driverOnTripNotifier.value = true;
-                          // Asegurar que no se vuelva a dibujar en posteriores actualizaciones
-                          hidePassengerMarker();
-                          _startNavigation();
-                        } : null,
-                        child: const Text('INICIAR VIAJE'),
-                      ),
-                  ],
+              const SizedBox(height: 10),
+
+              // ── Chip de distancia inline ─────────────────────────────────
+              if (_currentPosition != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _buildInlineDistanceChip(),
                 ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              width: double.infinity,
-              child: ValueListenableBuilder<bool>(
-                valueListenable: driverOnTripNotifier,
-                builder: (context, onTrip, _) {
-                  debugPrint('Building slide action - onTrip=$onTrip, _navigating=$_navigating');
-                  final verticalPadding = onTrip ? 14.0 : 6.0;
-                  // Altura mayor cuando estamos en viaje para dar más espacio al botón terminar
-                  final slideHeight = 70.0;
-                  return Padding(
-                    padding: EdgeInsets.symmetric(vertical: verticalPadding),
-                    child: CustomSlideAction(
-                      text: 'Desliza para terminar viaje',
-                      textStyle: const TextStyle(fontSize: 16, color: Colors.white),
-                      outerColor: Colors.red,
-                      innerColor: Colors.white,
-                      height: slideHeight,
-                      sliderButtonIcon: const Icon(Icons.check, color: Colors.red),
-                      onSubmit: () async {
-                        final travelId = widget.travelId ?? '';
-                        final driverId = _driverId ?? '';
-                        // Intentar finalizar en backend, pero si falla igual limpiamos localmente
-                        if (travelId.isEmpty || driverId.isEmpty) {
-                          // No hay ids: solo limpiar localmente
-                          _endTrip();
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Viaje finalizado (local)')));
-                          return;
-                        }
-                        final ok = await FirebaseActionService.completeTravel(travelId, driverId);
-                        // Siempre limpiamos el estado local del viaje
+              const SizedBox(height: 12),
+
+              // ── Botón INICIAR VIAJE (solo si no se ha recogido) ──────────
+              if (!_passengerPickedUp)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _buildStartTripButton(),
+                ),
+
+              // ── Slide para terminar viaje ────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: driverOnTripNotifier,
+                  builder: (context, _, __) => CustomSlideAction(
+                    text: 'Desliza para terminar viaje',
+                    textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: 0.3),
+                    outerColor: _tsDestDot,
+                    innerColor: Colors.white,
+                    height: 62,
+                    sliderButtonIcon: const Icon(Icons.check_rounded, color: _tsDestDot),
+                    onSubmit: () async {
+                      final travelId = widget.travelId ?? '';
+                      final driverId = _driverId ?? '';
+                      if (travelId.isEmpty || driverId.isEmpty) {
                         _endTrip();
-                        if (mounted) {
-                          if (ok) {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Viaje finalizado')));
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Viaje finalizado localmente (error al notificar backend)')));
-                          }
-                        }
-                      },
-                    ),
-                  );
-                },
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Viaje finalizado (local)')));
+                        return;
+                      }
+                      final ok = await FirebaseActionService.completeTravel(travelId, driverId);
+                      _endTrip();
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(ok ? 'Viaje finalizado' : 'Viaje finalizado localmente (error al notificar backend)'),
+                        ));
+                      }
+                    },
+                  ),
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-          ] else if (!hasTravel) ...[
-            Container(
-              height: 40,
-              alignment: Alignment.centerLeft,
-              child: Text('Sin Viaje', style: TextStyle(fontSize: 15, color: Colors.grey[700])),
-            )
-          ] else ...[
-            Container(
-              height: 40,
-              alignment: Alignment.centerLeft,
-              child: Text(passengerText, style: const TextStyle(fontSize: 14)),
-            )
+              const SizedBox(height: 16),
+            ] else ...[
+              // Collapsed: pequeño espaciado inferior
+              const SizedBox(height: 16),
+            ],
           ],
         ],
       ),
@@ -1440,37 +1496,13 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     return dist <= thresholdMeters;
   }
 
-  /// Devuelve la distancia en metros desde el conductor hasta el pasajero, o null si no es calculable.
-  double? _distanceToPassengerMeters() {
-    if (_passengerLatLng == null || _currentPosition == null) return null;
-    return Geolocator.distanceBetween(
-      _currentPosition!.latitude,
-      _currentPosition!.longitude,
-      _passengerLatLng!.latitude,
-      _passengerLatLng!.longitude,
-    );
-  }
-
-  /// Etiqueta resumida que explica por qué el botón está bloqueado o muestra la distancia.
-  /// El botón se habilita a ≤ 30 m (driver_arrived).
-  String _distanceStatusLabel({double thresholdMeters = 30}) {
-    // Si ya iniciamos navegación/recogida, ocultar la leyenda
-    if (_navigating) return '';
-    if (_passengerLatLng == null) return 'No hay ubicación de pasajero.';
-    if (_currentPosition == null) return 'Obteniendo ubicación...';
-    final d = _distanceToPassengerMeters() ?? double.infinity;
-    if (d <= thresholdMeters) return 'Conductor llegó: ${d.round()} m — listo para iniciar.';
-    return 'Faltan ${d.round()} m para llegar al pasajero (se habilita a ${thresholdMeters.toInt()} m).';
-  }
-
   void _endTrip() {
     _safeSetState(() {
       _passengerLatLng = null;
       _destinationLatLng = null;
       _dropoffLatLng = null;
-      // Reset pickup flag al terminar viaje
       _passengerPickedUp = false;
-      // Reset flags de notificación para el próximo viaje
+      _passengerName = 'Pasajero'; // resetear nombre para el próximo viaje
       _notifiedDriverNear = false;
       _notifiedDriverArrived = false;
       _checkingProximity = false;
@@ -1480,6 +1512,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       _navigating = false;
     });
     if (driverOnTripNotifier.value) driverOnTripNotifier.value = false;
+    // Limpiar el travelId global: el viaje terminó
+    activeTravelIdNotifier.value = null;
   }
 
   /// Método unificado de proximidad.
@@ -1606,11 +1640,16 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       });
       final travelId = widget.travelId ?? activeTravelIdNotifier.value;
       if (travelId != null && travelId.isNotEmpty) {
+        // Hay un travelId conocido: cargar o restaurar según estado
         if (driverOnTripNotifier.value) {
           await _checkActiveTripAndRestore();
         } else {
           await _loadTravelData(travelId);
         }
+      } else {
+        // Sin travelId conocido: buscar en Firestore por si hay viaje activo.
+        // Cubre el caso de inicio en frío o reinstalación.
+        await _checkActiveTripAndRestore();
       }
     } catch (e) {
       debugPrint('_getCurrentLocation error: $e');
@@ -1653,46 +1692,198 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     _mapCenteredInitially = true;
   }
 
-  /// Genera la etiqueta de distancia en el overlay superior:
-  /// - Antes de recoger: distancia del driver al pasajero.
-  /// - Después de recoger: distancia del driver al destino.
-  String _distanceOverlayLabel() {
-    if (_currentPosition == null) return '';
+  // ── Refresh manual ────────────────────────────────────────────────────────
 
-    const double metersPerMile = 1609.344;
+  /// Fuerza una restauración completa del viaje activo desde Firestore.
+  /// El driver puede usar esto si algo se desfasó visualmente.
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    _safeSetState(() => _refreshing = true);
+    try {
+      // 1. Buscar viaje activo en Firestore (siempre, aunque no haya travelId local)
+      _restoring = false; // resetear flag para que _checkActiveTripAndRestore() pueda correr
+      await _checkActiveTripAndRestore();
 
-    String formatValue(double meters) {
-      if (meters >= metersPerMile) {
-        final miles = meters / metersPerMile;
-        // Mostrar 1 decimal para valores menores a 10mi, entero si >=10mi
-        final text = miles < 10 ? miles.toStringAsFixed(1) : miles.toStringAsFixed(0);
-        return '$text miles';
-      } else {
-        return '${meters.round()} metros';
+      // 2. Si ahora tenemos un travelId, forzar recarga de datos
+      final travelId = widget.travelId ?? activeTravelIdNotifier.value;
+      if (travelId != null && travelId.isNotEmpty) {
+        _loadingTravelData = false; // resetear throttle
+        await _loadTravelData(travelId);
       }
-    }
 
-    if (!_passengerPickedUp) {
-      if (_passengerLatLng == null) return '';
-      final distanceMeters = Geolocator.distanceBetween(
-        _currentPosition!.latitude,
-        _currentPosition!.longitude,
-        _passengerLatLng!.latitude,
-        _passengerLatLng!.longitude,
-      );
-      return 'Distancia al pasajero: ${formatValue(distanceMeters)}';
-    } else {
-      final target = _destinationLatLng ?? _dropoffLatLng;
-      if (target == null) return '';
-      final distanceMeters = Geolocator.distanceBetween(
-        _currentPosition!.latitude,
-        _currentPosition!.longitude,
-        target.latitude,
-        target.longitude,
-      );
-      return 'Distancia al destino: ${formatValue(distanceMeters)}';
+      // 3. Actualizar la ubicación del driver
+      if (_currentPosition != null) {
+        _driverLatLng = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
+        _updateDriverMarker();
+      }
+
+      // 4. Redibujar ruta si hay destino
+      final target = _activeRouteTarget();
+      if (target != null) {
+        await _prepareRouteOnMap(_driverLatLng, target);
+      }
+    } catch (e) {
+      debugPrint('_refresh error: $e');
+    } finally {
+      if (mounted) _safeSetState(() => _refreshing = false);
     }
   }
+
+  // ── Helpers de UI ─────────────────────────────────────────────────────────
+
+  /// Avatar del pasajero con iniciales y color determinístico.
+  Widget _buildPassengerAvatar({double radius = 22}) {
+    final name = _passengerName.trim().isNotEmpty ? _passengerName : 'P';
+    final initials = name.split(' ').map((w) => w.isNotEmpty ? w[0] : '').take(2).join().toUpperCase();
+    final hue = (name.codeUnits.fold(0, (a, b) => a + b) % 360).toDouble();
+    final avatarBg = HSVColor.fromAHSV(1.0, hue, 0.55, 0.72).toColor();
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: avatarBg,
+      child: Text(initials, style: TextStyle(fontSize: radius * 0.72, fontWeight: FontWeight.bold, color: Colors.white)),
+    );
+  }
+
+  /// Pill oscuro que flota sobre el mapa con la distancia actual.
+  Widget _buildDistancePill() {
+    if (_currentPosition == null) return const SizedBox.shrink();
+    const double mpm = 1609.344;
+    String fmt(double m) => m >= mpm
+        ? '${(m / mpm) < 10 ? (m / mpm).toStringAsFixed(1) : (m / mpm).toStringAsFixed(0)} mi'
+        : '${m.round()} m';
+
+    String label;
+    IconData icon;
+    Color dotColor;
+
+    if (!_passengerPickedUp) {
+      if (_passengerLatLng == null) return const SizedBox.shrink();
+      final d = Geolocator.distanceBetween(
+        _currentPosition!.latitude, _currentPosition!.longitude,
+        _passengerLatLng!.latitude, _passengerLatLng!.longitude,
+      );
+      label = 'Al pasajero   ${fmt(d)}';
+      icon = Icons.person_pin_circle_rounded;
+      dotColor = _tsOriginDot;
+    } else {
+      final target = _destinationLatLng ?? _dropoffLatLng;
+      if (target == null) return const SizedBox.shrink();
+      final d = Geolocator.distanceBetween(
+        _currentPosition!.latitude, _currentPosition!.longitude,
+        target.latitude, target.longitude,
+      );
+      label = 'Al destino   ${fmt(d)}';
+      icon = Icons.flag_rounded;
+      dotColor = _tsDestDot;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: _tsCardBg,
+        borderRadius: BorderRadius.circular(28),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 14, offset: const Offset(0, 3))],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: dotColor),
+          const SizedBox(width: 8),
+          Text(label, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  /// Chip de distancia dentro del panel inferior (más detallado que el pill).
+  Widget _buildInlineDistanceChip() {
+    if (_currentPosition == null) return const SizedBox.shrink();
+    const double mpm = 1609.344;
+    String fmt(double m) => m >= mpm
+        ? '${(m / mpm) < 10 ? (m / mpm).toStringAsFixed(1) : (m / mpm).toStringAsFixed(0)} mi'
+        : '${m.round()} m';
+
+    double? dist;
+    IconData icon;
+    Color dotColor;
+    String prefix;
+
+    if (!_passengerPickedUp && _passengerLatLng != null) {
+      dist = Geolocator.distanceBetween(
+        _currentPosition!.latitude, _currentPosition!.longitude,
+        _passengerLatLng!.latitude, _passengerLatLng!.longitude,
+      );
+      icon = Icons.person_pin_circle_rounded;
+      dotColor = _tsOriginDot;
+      prefix = 'Al pasajero';
+    } else if (_passengerPickedUp) {
+      final target = _destinationLatLng ?? _dropoffLatLng;
+      if (target != null) {
+        dist = Geolocator.distanceBetween(
+          _currentPosition!.latitude, _currentPosition!.longitude,
+          target.latitude, target.longitude,
+        );
+      }
+      icon = Icons.flag_rounded;
+      dotColor = _tsDestDot;
+      prefix = 'Al destino';
+    } else {
+      return const SizedBox.shrink();
+    }
+    if (dist == null) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(color: _tsSurface, borderRadius: BorderRadius.circular(12)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: dotColor),
+          const SizedBox(width: 8),
+          Text('$prefix  ', style: const TextStyle(color: _tsTextMuted, fontSize: 12)),
+          Text(fmt(dist), style: const TextStyle(color: _tsTextMain, fontSize: 14, fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+
+  /// Botón "INICIAR VIAJE": activado solo cuando el driver está a ≤ 30 m del pasajero.
+  Widget _buildStartTripButton() {
+    final near = _isNearPassenger(thresholdMeters: 30);
+    return GestureDetector(
+      onTap: near ? () {
+        setState(() {
+          _passengerPickedUp = true;
+          _showPassengerMarker = false;
+          _markers.removeWhere((m) => m.markerId.value == 'passenger');
+        });
+        driverOnTripNotifier.value = true;
+        hidePassengerMarker();
+        _startNavigation();
+      } : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        height: 56,
+        decoration: BoxDecoration(
+          color: near ? _tsOriginDot : _tsSurface,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: near ? [BoxShadow(color: _tsOriginDot.withOpacity(0.35), blurRadius: 12, offset: const Offset(0, 4))] : [],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.play_arrow_rounded, color: near ? _tsCardBg : _tsTextMuted, size: 22),
+            const SizedBox(width: 8),
+            Text(
+              near ? 'INICIAR VIAJE' : 'INICIAR VIAJE  —  acércate al pasajero',
+              style: TextStyle(fontSize: near ? 15 : 12, fontWeight: FontWeight.w700, color: near ? _tsCardBg : _tsTextMuted, letterSpacing: 0.4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 }
 
 // Implementación local de CustomSlideAction (swipe to confirm) para terminar viaje

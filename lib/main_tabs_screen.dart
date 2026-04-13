@@ -26,6 +26,58 @@ class _MainTabsScreenState extends State<MainTabsScreen> {
     _restoreActiveTravelIfAny();
   }
 
+  // ── Paleta Dark Premium ────────────────────────────────────────────────────
+  static const _navBg       = Color(0xFF22222E); // gris-azulado medio — ni blanco ni negro
+  static const _navSelected = Color(0xFF6366F1); // índigo — igual que el popup y el sheet
+  static const _navMuted    = Color(0xFF5B5B70); // gris-morado apagado
+  static const _navSeparator = Color(0xFF2E2E3E); // línea separadora sutil
+
+  Widget _buildBottomNav({
+    required int selectedIndex,
+    required bool onTrip,
+    required void Function(int) onTap,
+  }) {
+    // Colores según modo viaje activo
+    final bg       = onTrip ? _onTripAccent       : _navBg;
+    final selected = onTrip ? Colors.white         : _navSelected;
+    final muted    = onTrip ? Colors.white70       : _navMuted;
+    final topBorder = onTrip
+        ? BorderSide.none
+        : const BorderSide(color: _navSeparator, width: 1);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: bg,
+        border: Border(top: topBorder),
+      ),
+      child: BottomNavigationBar(
+        currentIndex: selectedIndex,
+        onTap: onTap,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        selectedItemColor: selected,
+        unselectedItemColor: muted,
+        type: BottomNavigationBarType.fixed,
+        selectedFontSize: 11,
+        unselectedFontSize: 11,
+        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0.3),
+        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w400),
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.directions_car_rounded),
+            activeIcon: Icon(Icons.directions_car_rounded),
+            label: 'Viaje',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.person_outline_rounded),
+            activeIcon: Icon(Icons.person_rounded),
+            label: 'Perfil',
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _restoreActiveTravelIfAny() async {
     if (_restored) return;
     _restored = true;
@@ -95,43 +147,26 @@ class _MainTabsScreenState extends State<MainTabsScreen> {
                 body: ValueListenableBuilder<String?>(
                   valueListenable: activeTravelIdNotifier,
                   builder: (context, activeTravelId, __) {
-                    if (selectedIndex == 0) {
-                      // Pasar el travelId activo (puede ser null)
-                      return TravelScreen(travelId: activeTravelId, phoneNumber: widget.phoneNumber);
-                    }
-                    return ProfileScreen();
+                    // IndexedStack mantiene ambas pantallas vivas en memoria.
+                    // TravelScreen nunca se destruye al cambiar de pestaña,
+                    // por lo que el estado del viaje persiste.
+                    return IndexedStack(
+                      index: selectedIndex,
+                      children: [
+                        TravelScreen(travelId: activeTravelId, phoneNumber: widget.phoneNumber),
+                        ProfileScreen(),
+                      ],
+                    );
                   },
                 ),
-                bottomNavigationBar: BottomNavigationBar(
-                  currentIndex: selectedIndex,
+                bottomNavigationBar: _buildBottomNav(
+                  selectedIndex: selectedIndex,
+                  onTrip: onTrip,
                   onTap: (index) {
-                    // Bloquear navegar fuera de Travel si hay un viaje activo (aceptado/asignado) o en progreso
-                    /*final activeTravelId = activeTravelIdNotifier.value;
-                    final hasActiveTravel = (activeTravelId != null && activeTravelId.isNotEmpty) || onTrip;
-                    if (index != 0 && hasActiveTravel) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('No puedes salir mientras el viaje está activo.')),
-                      );
-                      return; // mantener pestaña actualdd
-                    }*/
-
                     tabsIndexNotifier.value = index;
-                    // Si se cambia manualmente de pestaña, limpiar travel activo solo si no estamos en viaje
-                    if (index != 0 && !onTrip) activeTravelIdNotifier.value = null;
+                    // NO limpiar activeTravelIdNotifier aquí.
+                    // TravelScreen solo lo limpia cuando el viaje termina realmente (_endTrip).
                   },
-                  backgroundColor: onTrip ? _onTripAccent : null,
-                  selectedItemColor: onTrip ? Colors.white : null,
-                  unselectedItemColor: onTrip ? Colors.white70 : null,
-                  items: [
-                    BottomNavigationBarItem(
-                      icon: Icon(Icons.directions_car, color: onTrip ? Colors.white : null),
-                      label: 'Travel',
-                    ),
-                    BottomNavigationBarItem(
-                      icon: Icon(Icons.person, color: onTrip ? Colors.white : null),
-                      label: 'Profile',
-                    ),
-                  ],
                 ),
               ),
             );
