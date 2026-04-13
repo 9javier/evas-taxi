@@ -2,7 +2,11 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
+
+import 'foreground_task_handler.dart';
 
 /// Servicio simple para publicar la ubicación del chofer en Firestore.
 /// - start(): inicia el stream de ubicación con filtro de distancia.
@@ -16,6 +20,7 @@ class DriverLocationService {
   StreamSubscription<Position>? _sub;
   Position? _lastPosition;
   DateTime? _lastSentAt;
+  bool _foregroundRunning = false;
 
   /// Inicia el seguimiento.
   /// [driverId]: id del documento en la colección 'drivers'.
@@ -56,6 +61,21 @@ class DriverLocationService {
 
       // Si aun no hay permiso, salir silenciosamente
       if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) return;
+
+      // Levantar el Foreground Service para que Android no mate el proceso en background
+      if (!_foregroundRunning) {
+        try {
+          await FlutterForegroundTask.startService(
+            serviceId: 256,
+            notificationTitle: "Eva's Taxi",
+            notificationText: 'GPS activo',
+            callback: foregroundTaskCallback,
+          );
+          _foregroundRunning = true;
+        } catch (e) {
+          debugPrint('DriverLocationService: error iniciando foreground service: $e');
+        }
+      }
 
       final settings = LocationSettings(
         accuracy: LocationAccuracy.best,
@@ -107,6 +127,15 @@ class DriverLocationService {
     _sub = null;
     _lastPosition = null;
     _lastSentAt = null;
+    // Detener el Foreground Service al terminar el seguimiento
+    if (_foregroundRunning) {
+      try {
+        await FlutterForegroundTask.stopService();
+        _foregroundRunning = false;
+      } catch (e) {
+        debugPrint('DriverLocationService: error deteniendo foreground service: $e');
+      }
+    }
   }
 
   Future<void> _sendToFirestore(String driverId, Position pos) async {

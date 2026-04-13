@@ -1,17 +1,15 @@
 import 'dart:async';
 
-import 'package:audioplayers/audioplayers.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-import 'notification_guard.dart';
-import 'app_state.dart';
-import 'notification_center.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-import 'firebase_action_service.dart';
+import 'notification_center.dart';
+import 'notification_guard.dart';
 import 'welcome_screen.dart';
 import 'travel_notification_handler.dart';
 
@@ -41,6 +39,24 @@ void handleTravelNotification(String travelId, BuildContext context, String? pho
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+
+  // Inicializar el Foreground Service antes de runApp
+  FlutterForegroundTask.init(
+    androidNotificationOptions: AndroidNotificationOptions(
+      channelId: 'eva_taxi_gps',
+      channelName: "Eva's Taxi GPS",
+      channelDescription: 'GPS activo mientras hay un viaje en curso.',
+      onlyAlertOnce: true,
+      showWhen: false,
+    ),
+    iosNotificationOptions: const IOSNotificationOptions(
+      showNotification: false,
+    ),
+    foregroundTaskOptions: ForegroundTaskOptions(
+      eventAction: ForegroundTaskEventAction.nothing(),
+      autoRunOnBoot: false,
+    ),
+  );
 
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   await FirebaseMessaging.instance.requestPermission();
@@ -136,7 +152,8 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return WithForegroundTask(
+      child: MaterialApp(
       title: 'Login Teléfono',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
@@ -161,6 +178,7 @@ class MyApp extends StatelessWidget {
           return WelcomeScreen(phoneNumber: user.phoneNumber ?? '');
         },
       ),
+    ), // WithForegroundTask
     );
   }
 }

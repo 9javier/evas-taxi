@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart' show rootBundle;
@@ -26,9 +24,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   bool _permissionDenied = false;
   bool _permissionPermanentlyDenied = false;
 
-  // Subscriptions para listeners de FCM
-  StreamSubscription<RemoteMessage>? _onMessageSub;
-  StreamSubscription<RemoteMessage>? _onMessageOpenedAppSub;
+  // Solo manejamos getInitialMessage aquí (app terminada).
+  // Los listeners onMessage y onMessageOpenedApp viven en main.dart para evitar duplicados.
 
   @override
   void initState() {
@@ -44,7 +41,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   }
 
   void _setupNotificationListeners() {
-    // Manejar notificación que abrió la app desde estado terminated
+    // Solo manejar el caso en que la app fue terminada y el usuario toca la notificación.
+    // onMessage y onMessageOpenedApp ya están registrados en main.dart.
     FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
       if (message == null) return;
       try {
@@ -54,7 +52,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
           final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
           if (travelId.isEmpty) return;
           if (!NotificationGuard.tryAdd(travelId)) return;
-          // Usar una pequeña demora para asegurarnos que el contexto está totalmente listo
+          // Pequeña demora para asegurar que el contexto está listo
           Future.delayed(const Duration(milliseconds: 300), () {
             if (!mounted) return;
             showTravelRequestDialog(context, travelId, (data['phone'] ?? data['phoneNumber'])?.toString());
@@ -62,40 +60,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         }
       } catch (_) {}
     });
-
-    // Mensajes en foreground
-    _onMessageSub = FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      try {
-        final data = message.data;
-        final type = data['type'] ?? '';
-        if (type == 'NEW_TRAVEL') {
-          final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
-          if (travelId.isEmpty) return;
-          if (!NotificationGuard.tryAdd(travelId)) return;
-          showTravelRequestDialog(context, travelId, (data['phone'] ?? data['phoneNumber'])?.toString());
-        }
-      } catch (_) {}
-    });
-
-    // Mensaje que abre la app (tap)
-    _onMessageOpenedAppSub = FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      try {
-        final data = message.data;
-        final type = data['type'] ?? '';
-        if (type == 'NEW_TRAVEL') {
-          final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
-          if (travelId.isEmpty) return;
-          if (!NotificationGuard.tryAdd(travelId)) return;
-          showTravelRequestDialog(context, travelId, (data['phone'] ?? data['phoneNumber'])?.toString());
-        }
-      } catch (_) {}
-    });
   }
 
   @override
   void dispose() {
-    _onMessageSub?.cancel();
-    _onMessageOpenedAppSub?.cancel();
     super.dispose();
   }
 

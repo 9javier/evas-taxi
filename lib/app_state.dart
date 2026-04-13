@@ -4,6 +4,6 @@ import 'package:flutter/foundation.dart';
 final ValueNotifier<int> tabsIndexNotifier = ValueNotifier<int>(0);
 final ValueNotifier<String?> activeTravelIdNotifier = ValueNotifier<String?>(null);
 
-// Notifier que indica si el conductor está en viaje (on_trip).
-// Se pone true al iniciar navegación/viaje y false al finalizar.
+// Notifier que indica si el conductor está en viaje (viaje_status: in_progress).
+// Se pone true al iniciar navegación (pasajero recogido) y false al finalizar.
 final ValueNotifier<bool> driverOnTripNotifier = ValueNotifier<bool>(false);

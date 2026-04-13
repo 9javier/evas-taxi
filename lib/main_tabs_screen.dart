@@ -35,11 +35,11 @@ class _MainTabsScreenState extends State<MainTabsScreen> {
     if ((activeTravelIdNotifier.value != null && activeTravelIdNotifier.value!.isNotEmpty) || driverOnTripNotifier.value) return;
     try {
       final driverId = user.uid;
-      // Buscar solo viajes realmente en proceso (no estados 'assigned'/'accepted')
+      // Buscar viajes en proceso: accepted, driver_near, driver_arrived, in_progress
       final q = await FirebaseFirestore.instance
           .collection('travels')
           .where('driverId', isEqualTo: driverId)
-          .where('status', whereIn: ['in_progress', 'on_trip'])
+          .where('viaje_status', whereIn: ['accepted', 'driver_near', 'driver_arrived', 'in_progress'])
           .limit(1)
           .get();
       DocumentSnapshot<Map<String, dynamic>>? doc;
@@ -50,16 +50,17 @@ class _MainTabsScreenState extends State<MainTabsScreen> {
         final qAlt = await FirebaseFirestore.instance
             .collection('travels')
             .where('driver_id', isEqualTo: driverId)
-            .where('status', whereIn: ['in_progress', 'on_trip'])
+            .where('viaje_status', whereIn: ['accepted', 'driver_near', 'driver_arrived', 'in_progress'])
             .limit(1)
             .get();
         if (qAlt.docs.isNotEmpty) doc = qAlt.docs.first;
       }
       if (doc == null) return;
-      final status = (doc.data()?['status'] ?? '').toString();
+      final viajeStatus = (doc.data()?['viaje_status'] ?? '').toString();
       final travelId = doc.id;
       activeTravelIdNotifier.value = travelId;
-      if (status == 'on_trip') {
+      // in_progress: el pasajero ya fue recogido, conductor en ruta al destino
+      if (viajeStatus == 'in_progress') {
         driverOnTripNotifier.value = true;
       }
       tabsIndexNotifier.value = 0; // asegurar pestaña Travel

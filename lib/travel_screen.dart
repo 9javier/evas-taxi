@@ -78,12 +78,23 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   bool _navigating = false;
   // Indica si el conductor ya recogió al pasajero (true solo después de pulsar "Recoger al Pasajero").
   bool _passengerPickedUp = false;
-  // Flag para evitar múltiples notificaciones "driver arrived" por viaje
+  // Flags para enviar cada notificación de proximidad una sola vez por viaje.
+  bool _notifiedDriverNear = false;
+  bool _notifiedDriverArrived = false;
+  // Evita ejecuciones concurrentes del chequeo de proximidad.
+  bool _checkingProximity = false;
   // Evita recentrar el mapa más de una vez al abrir la pantalla
   bool _mapCenteredInitially = false;
   // Evita múltiples restauraciones simultáneas
   bool _restoring = false;
   EdgeInsets _mapPadding = EdgeInsets.zero; // nuevo padding dinámico del mapa
+
+  // Control de interacción manual del driver con el mapa:
+  // cuando el driver hace zoom/pan, pausamos el seguimiento automático de cámara.
+  bool _userPanningMap = false;
+  DateTime? _lastUserInteractionAt;
+  bool _programmaticCameraMove = false;
+  static const int _userInteractionPauseSecs = 12;
 
   @override
   void initState() {
@@ -153,8 +164,9 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           } catch (_) {}
         }
 
-        // Durante la navegación, seguir al conductor con una cámara tipo 'GPS' (throttle cada ~1s)
-        if (_navigating && (_dropoffLatLng != null || _destinationLatLng != null)) {
+        // Durante la navegación, seguir al conductor con una cámara tipo 'GPS' (throttle cada ~1s).
+        // Si el driver está explorando el mapa manualmente, pausar el seguimiento automático.
+        if (_navigating && (_dropoffLatLng != null || _destinationLatLng != null) && !_isUserInteracting()) {
           final nowCam = DateTime.now();
           if (_lastCameraUpdatedAt == null || nowCam.difference(_lastCameraUpdatedAt!).inMilliseconds >= 900) {
             _lastCameraUpdatedAt = nowCam;
@@ -165,7 +177,9 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                 // Zoom fijo para experiencia tipo GPS
                 const double zoom = 20.2;
                 final camera = CameraPosition(target: _driverLatLng, zoom: zoom, tilt: 20.0, bearing: bearing);
+                _programmaticCameraMove = true;
                 await _mapController!.animateCamera(CameraUpdate.newCameraPosition(camera));
+                Future.delayed(const Duration(milliseconds: 250), () => _programmaticCameraMove = false);
               }
             } catch (e) {
               debugPrint('Error actualizando cámara en navegación: $e');
@@ -190,12 +204,9 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
 
         // Revisar proximidad y notificar al pasajero si aún no lo hemos hecho
         try {
-          // El pasajero esta cercas
-          _checkAndNotifyPasengerNear();
-          // LLegó el Driver
-          _checkAndNotifyArrival();
+          await _checkProximityAndNotify();
         } catch (e) {
-          debugPrint('Error checkAndNotifyArrival: $e');
+          debugPrint('Error checkProximityAndNotify: $e');
         }
       });
     } catch (e) {
@@ -243,9 +254,42 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     setState(fn);
   }
 
+  /// Devuelve true si el driver está explorando el mapa manualmente y no debe
+  /// interrumpirse con movimientos automáticos de cámara.
+  bool _isUserInteracting() {
+    if (!_userPanningMap) return false;
+    if (_lastUserInteractionAt == null) return false;
+    if (DateTime.now().difference(_lastUserInteractionAt!).inSeconds >= _userInteractionPauseSecs) {
+      _userPanningMap = false;
+      return false;
+    }
+    return true;
+  }
+
   Future<void> _startNavigation() async {
     // LLamar al servicio de firebase que notifica al pasajero que el conductor inició la navegación
     if (!mounted) return; // evitar continuar si ya se desmontó
+    // Si no tenemos coordenadas de destino, hacer una lectura puntual a Firestore
+    // solo para obtener las coordenadas — sin setState ni redibujado de ruta.
+    if (_dropoffLatLng == null) {
+      final travelId = (widget.travelId ?? activeTravelIdNotifier.value ?? '').toString();
+      if (travelId.isNotEmpty) {
+        try {
+          final doc = await FirebaseFirestore.instance.collection('travels').doc(travelId).get();
+          if (doc.exists) {
+            final data = doc.data() ?? {};
+            LatLng? parsed = _tryParseDestFromData(data);
+            if (parsed != null) {
+              _dropoffLatLng = parsed;
+              _destinationLatLng = parsed;
+            }
+          }
+        } catch (e) {
+          debugPrint('_startNavigation: error leyendo destino desde Firestore: $e');
+        }
+      }
+    }
+
     // El objetivo al iniciar el modo 'Recoger al Pasajero' debe ser el destino final
     // del pasajero (dropoff/destination). Si no existe, usar la ubicación del pasajero.
     final target = _dropoffLatLng ?? _destinationLatLng ?? _passengerLatLng;
@@ -323,6 +367,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   /// Ajusta la cámara; en gpsMode centra en el driver con vista tipo GPS.
   Future<void> _focusCameraForRoute(LatLng origin, LatLng dest, LatLngBounds bounds, {bool gpsMode = false}) async {
     if (_mapController == null || !mounted) return;
+    _programmaticCameraMove = true;
     try {
       await _updateMapPadding();
 
@@ -372,6 +417,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       try {
         await _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 30));
       } catch (_) {}
+    } finally {
+      Future.delayed(const Duration(milliseconds: 250), () => _programmaticCameraMove = false);
     }
   }
 
@@ -567,27 +614,26 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
               QuerySnapshot<Map<String, dynamic>> q = await FirebaseFirestore.instance
                   .collection('travels')
                   .where('driverId', isEqualTo: _driverId)
-                  .where('status', whereIn: ['in_progress', 'on_trip', 'assigned', 'accepted'])
+                  .where('viaje_status', whereIn: ['accepted', 'driver_near', 'driver_arrived', 'in_progress'])
                   .limit(1)
                   .get();
               if (q.docs.isEmpty) {
                 q = await FirebaseFirestore.instance
                     .collection('travels')
                     .where('driver_id', isEqualTo: _driverId)
-                    .where('status', whereIn: ['in_progress', 'on_trip', 'assigned', 'accepted'])
+                    .where('viaje_status', whereIn: ['accepted', 'driver_near', 'driver_arrived', 'in_progress'])
                     .limit(1)
                     .get();
               }
               if (q.docs.isNotEmpty) {
                 final d = q.docs.first;
                 travelId = d.id;
-                remoteStatus = (d.data()['status'] ?? '').toString();
+                remoteStatus = (d.data()['viaje_status'] ?? '').toString();
                 if (activeTravelIdNotifier.value != travelId) {
                   activeTravelIdNotifier.value = travelId;
                 }
-                // YA NO marcamos driverOnTripNotifier en 'in_progress'; solo en 'on_trip'
-                final isOnTrip = remoteStatus == 'on_trip';
-                driverOnTripNotifier.value = isOnTrip;
+                // in_progress: pasajero ya recogido, conductor en ruta al destino
+                driverOnTripNotifier.value = remoteStatus == 'in_progress';
               }
             } catch (e) {
               debugPrint('Error buscando viaje activo en Firestore: $e');
@@ -598,9 +644,9 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             final snap = await FirebaseFirestore.instance.collection('travels').doc(travelId).get();
             if (!snap.exists) {
               final alt = await FirebaseFirestore.instance.collection('requestTravel').doc(travelId).get();
-              if (alt.exists) remoteStatus = (alt.data()?['status'] ?? '').toString();
+              if (alt.exists) remoteStatus = (alt.data()?['viaje_status'] ?? '').toString();
             } else {
-              remoteStatus = (snap.data()?['status'] ?? '').toString();
+              remoteStatus = (snap.data()?['viaje_status'] ?? '').toString();
             }
           } catch (e) {
             debugPrint('Error leyendo estado del viaje para travelId=$travelId: $e');
@@ -609,14 +655,15 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       }
       if (travelId == null || travelId.isEmpty) return;
       try { await _loadTravelData(travelId); } catch (e) { debugPrint('Error cargando datos del viaje en restore: $e'); }
-      final isOnTripRemote = (remoteStatus == 'on_trip'); // solo 'on_trip' implica pasajero dentro
+      // in_progress: pasajero ya a bordo, conductor en ruta al destino
+      final isInProgress = (remoteStatus == 'in_progress');
       const endStatuses = {
-        'completed','complete','finished','ended','finalized','cancelled','canceled','rejected','declined'
+        'completed','complete','finished','ended','finalized','cancelled','canceled','rejected','declined','close'
       };
-      if (isOnTripRemote) {
+      if (isInProgress) {
         if (mounted) {
           _safeSetState(() {
-            _navigating = true; // navegación estilo GPS solo ya con pasajero
+            _navigating = true;
             _passengerPickedUp = true;
             _sheetExpanded = true;
           });
@@ -654,6 +701,10 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     if (!mounted) return;
     if (_loadingTravelData) return;
     _loadingTravelData = true;
+    // Resetear flags de notificación para el nuevo viaje
+    _notifiedDriverNear = false;
+    _notifiedDriverArrived = false;
+    _checkingProximity = false;
     try {
       DocumentSnapshot<Map<String, dynamic>> doc = await FirebaseFirestore.instance.collection('travels').doc(travelId).get();
       if (!mounted) return;
@@ -664,31 +715,31 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       }
       final data = doc.data() ?? {};
       try {
-        final String status = (data['status'] ?? '').toString();
-        // Solo 'on_trip' activa estados de pasajero recogido.
-        final bool passengerOnBoard = status == 'on_trip';
+        final String viajeStatus = (data['viaje_status'] ?? '').toString();
+        // in_progress: pasajero ya recogido, conductor en ruta al destino
+        final bool passengerOnBoard = viajeStatus == 'in_progress';
         const endStatuses = {
-          'completed','complete','finished','ended','finalized','cancelled','canceled','rejected','declined'
+          'completed','complete','finished','ended','finalized','cancelled','canceled','rejected','declined','close'
         };
         if (passengerOnBoard) {
           _safeSetState(() {
-            //_navigating = true; // activar modo navegación GPS
-            //_passengerPickedUp = true;
+            _navigating = true;
+            _passengerPickedUp = true;
           });
           if (!driverOnTripNotifier.value) driverOnTripNotifier.value = true;
-        } else if (endStatuses.contains(status.toLowerCase())) {
+        } else if (viajeStatus.isNotEmpty && endStatuses.contains(viajeStatus.toLowerCase())) {
           if (driverOnTripNotifier.value) driverOnTripNotifier.value = false;
           _safeSetState(() {
-            //_navigating = false;
+            _navigating = false;
             _passengerPickedUp = false;
           });
         } else {
-          // Estados previos (in_progress/accepted/assigned): asegurar que botón aparece.
+          // Estados previos (accepted, driver_near, driver_arrived): mostrar botón "INICIAR VIAJE"
           _safeSetState(() {
             _passengerPickedUp = false;
-            _navigating = false; // aún no estilo GPS
+            _navigating = false;
           });
-          if (driverOnTripNotifier.value) driverOnTripNotifier.value = false; // mantener false hasta recoger
+          if (driverOnTripNotifier.value) driverOnTripNotifier.value = false;
         }
       } catch (_) {}
       LatLng? tryParse(dynamic m) {
@@ -724,6 +775,12 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       if (dest == null && data.containsKey('dest_lat') && data.containsKey('dest_lng')) {
         final lat = _toDouble(data['dest_lat']);
         final lng = _toDouble(data['dest_lng']);
+        if (lat != null && lng != null) dest = LatLng(lat, lng);
+      }
+      // Intentar flat fields adicionales para lat/lng del destino
+      if (dest == null) {
+        final lat = _toDouble(data['destination_lat'] ?? data['dropoff_lat'] ?? data['dest_latitude'] ?? data['destino_lat'] ?? data['destLat'] ?? data['dropoffLat']);
+        final lng = _toDouble(data['destination_lng'] ?? data['dropoff_lng'] ?? data['dest_longitude'] ?? data['destino_lng'] ?? data['destLng'] ?? data['dropoffLng']);
         if (lat != null && lng != null) dest = LatLng(lat, lng);
       }
 
@@ -780,6 +837,41 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     } finally {
       _loadingTravelData = false;
     }
+  }
+
+  /// Parsea las coordenadas del destino desde un documento de Firestore.
+  /// Centraliza la lógica de búsqueda de campos para reutilizarla sin efectos secundarios.
+  LatLng? _tryParseDestFromData(Map<String, dynamic> data) {
+    LatLng? tryParse(dynamic m) {
+      if (m == null) return null;
+      if (m is GeoPoint) return LatLng(m.latitude, m.longitude);
+      if (m is Map) {
+        final lat = _toDouble(m['lat'] ?? m['latitude'] ?? m['latitud']);
+        final lng = _toDouble(m['lng'] ?? m['longitude'] ?? m['lngitud']);
+        if (lat != null && lng != null) return LatLng(lat, lng);
+      }
+      if (m is List && m.length >= 2) {
+        final lat = _toDouble(m[0]);
+        final lng = _toDouble(m[1]);
+        if (lat != null && lng != null) return LatLng(lat, lng);
+      }
+      return null;
+    }
+
+    LatLng? dest = tryParse(data['destino']) ?? tryParse(data['destination']) ?? tryParse(data['dest']) ?? tryParse(data['to']);
+    dest ??= _tryParseFromKeys(data, ['destLat', 'destinationLat', 'toLat', 'd_lat']);
+
+    if (dest == null && data.containsKey('dest_lat') && data.containsKey('dest_lng')) {
+      final lat = _toDouble(data['dest_lat']);
+      final lng = _toDouble(data['dest_lng']);
+      if (lat != null && lng != null) dest = LatLng(lat, lng);
+    }
+    if (dest == null) {
+      final lat = _toDouble(data['destination_lat'] ?? data['dropoff_lat'] ?? data['dest_latitude'] ?? data['destino_lat'] ?? data['destLat'] ?? data['dropoffLat']);
+      final lng = _toDouble(data['destination_lng'] ?? data['dropoff_lng'] ?? data['dest_longitude'] ?? data['destino_lng'] ?? data['destLng'] ?? data['dropoffLng']);
+      if (lat != null && lng != null) dest = LatLng(lat, lng);
+    }
+    return dest;
   }
 
   double? _toDouble(dynamic v) {
@@ -900,7 +992,10 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       // Forzar render inmediato de la polyline
       if (mounted) setState(() {});
       final bounds = _getBounds(routePoints);
-      if (_mapController != null && bounds != null) {
+      // Durante navegación GPS la cámara la controla el stream de posición.
+      // Si el driver está explorando el mapa manualmente tampoco interrumpir.
+      if (_mapController != null && bounds != null && !_navigating && !_isUserInteracting()) {
+        _programmaticCameraMove = true;
         try {
           await _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 70));
         } catch (_) {
@@ -910,6 +1005,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             } catch (_) {}
           });
         }
+        Future.delayed(const Duration(milliseconds: 250), () => _programmaticCameraMove = false);
       }
       // Devolver bounds para que el caller pueda ajustar la cámara a un estilo GPS
       return _getBounds(_polylines.isNotEmpty ? _polylines.first.points : []);
@@ -1023,6 +1119,14 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           myLocationButtonEnabled: true,
           markers: _markers,
           polylines: _polylines,
+          onCameraMoveStarted: () {
+            // Si el movimiento no fue iniciado por código, el driver está explorando el mapa.
+            // Pausar seguimiento automático por _userInteractionPauseSecs segundos.
+            if (!_programmaticCameraMove) {
+              _userPanningMap = true;
+              _lastUserInteractionAt = DateTime.now();
+            }
+          },
           onMapCreated: (controller) async {
             _mapController = controller;
             await _updateMapPadding();
@@ -1220,7 +1324,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                       padding: const EdgeInsets.only(bottom: 8.0),
                       child: Text(
                         _distanceStatusLabel(),
-                        style: TextStyle(fontSize: 13, color: (!_navigating && _isNearPassenger(thresholdMeters: 70) ? Colors.green[700] : Colors.grey[700])),
+                        style: TextStyle(fontSize: 13, color: (!_navigating && _isNearPassenger(thresholdMeters: 30) ? Colors.green[700] : Colors.grey[700])),
                       ),
                     ),
                     // Mostrar botón mientras NO se ha recogido al pasajero.
@@ -1235,7 +1339,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                             color: Colors.white,
                           ),
                         ),
-                        onPressed: _isNearPassenger(thresholdMeters: 70) ? () {
+                        onPressed: _isNearPassenger(thresholdMeters: 30) ? () {
                           // Al recoger: activar onTrip y navegación hacia destino final.
                           setState(() {
                             _passengerPickedUp = true;
@@ -1348,13 +1452,14 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   }
 
   /// Etiqueta resumida que explica por qué el botón está bloqueado o muestra la distancia.
-  String _distanceStatusLabel({double thresholdMeters = 200}) {
+  /// El botón se habilita a ≤ 30 m (driver_arrived).
+  String _distanceStatusLabel({double thresholdMeters = 30}) {
     // Si ya iniciamos navegación/recogida, ocultar la leyenda
     if (_navigating) return '';
     if (_passengerLatLng == null) return 'No hay ubicación de pasajero.';
     if (_currentPosition == null) return 'Obteniendo ubicación...';
     final d = _distanceToPassengerMeters() ?? double.infinity;
-    if (d <= thresholdMeters) return 'Conductor cerca: ${d.round()} m — listo para iniciar.';
+    if (d <= thresholdMeters) return 'Conductor llegó: ${d.round()} m — listo para iniciar.';
     return 'Faltan ${d.round()} m para llegar al pasajero (se habilita a ${thresholdMeters.toInt()} m).';
   }
 
@@ -1365,6 +1470,10 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       _dropoffLatLng = null;
       // Reset pickup flag al terminar viaje
       _passengerPickedUp = false;
+      // Reset flags de notificación para el próximo viaje
+      _notifiedDriverNear = false;
+      _notifiedDriverArrived = false;
+      _checkingProximity = false;
       _markers.removeWhere((m) => m.markerId.value != 'driver');
       _polylines.clear();
       _sheetExpanded = false;
@@ -1373,64 +1482,61 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     if (driverOnTripNotifier.value) driverOnTripNotifier.value = false;
   }
 
-  /// Verifica si el conductor está cerca del pasajero y, si no se ha notificado antes,
-  /// llama al servicio notifyDriverArrived una sola vez por viaje.
-  Future<void> _checkAndNotifyArrival() async {
-    // Ya notificado: no hacer nada
-    if (widget.travelId == null) return;
-    // Debe existir posición de pasajero y del conductor
+  /// Método unificado de proximidad.
+  /// Garantiza que:
+  ///  1. "driver_near"   se envía UNA sola vez cuando dist ≤ 300 m.
+  ///  2. "driver_arrived" se envía UNA sola vez cuando dist ≤ 40 m.
+  ///  3. "near" siempre se envía ANTES que "arrived".
+  ///  4. No hay ejecuciones concurrentes (lock local).
+  Future<void> _checkProximityAndNotify() async {
+    // Precondiciones rápidas (sin I/O)
+    if (_checkingProximity) return;
+    if (_passengerPickedUp) return; // ya recogió al pasajero, no notificar
+    if (_notifiedDriverArrived) return; // ya se enviaron ambas
     if (_passengerLatLng == null || _currentPosition == null) return;
-    // Driver has arrived
-    if (_isNearPassenger(thresholdMeters: 70)) return;
 
-    // Verificar si ya se notificó la llegada para este viaje
-    final dataTravel = await getTravel(widget.travelId);
-    if (dataTravel == null || dataTravel['viaje_status'] == 'driver_arrived') return;
-    if (dataTravel['viaje_status'] != 'accepted') return;
-
-    // Evitar llamadas sin travelId o driverId
     final travelId = widget.travelId ?? activeTravelIdNotifier.value ?? '';
     final driverId = _driverId ?? '';
     if (travelId.isEmpty || driverId.isEmpty) return;
+
+    final dist = Geolocator.distanceBetween(
+      _currentPosition!.latitude,
+      _currentPosition!.longitude,
+      _passengerLatLng!.latitude,
+      _passengerLatLng!.longitude,
+    );
+
+    // Aún lejos de ambos umbrales → nada que hacer
+    if (dist > 300) return;
+
+    // — Bloquear para evitar concurrencia —
+    _checkingProximity = true;
     try {
-      final ok = await FirebaseActionService.notifyDriverArrived(travelId, driverId);
-      if (!ok) {
-        debugPrint('notifyDriverArrived API returned failure for travel=$travelId');
+      // ── Paso 1: Notificar "cerca" (≤ 300 m) ──
+      if (!_notifiedDriverNear && dist <= 300) {
+        final ok = await FirebaseActionService.notifyDriverNear(travelId, driverId);
+        if (ok) {
+          _notifiedDriverNear = true;
+          debugPrint('✔ notifyDriverNear enviado (dist=${dist.round()} m)');
+        } else {
+          debugPrint('✖ notifyDriverNear falló para travel=$travelId');
+        }
+      }
+
+      // ── Paso 2: Notificar "llegó" (≤ 30 m) — solo si "near" ya fue enviado ──
+      if (!_notifiedDriverArrived && _notifiedDriverNear && dist <= 30) {
+        final ok = await FirebaseActionService.notifyDriverArrived(travelId, driverId);
+        if (ok) {
+          _notifiedDriverArrived = true;
+          debugPrint('✔ notifyDriverArrived enviado (dist=${dist.round()} m)');
+        } else {
+          debugPrint('✖ notifyDriverArrived falló para travel=$travelId');
+        }
       }
     } catch (e) {
-      debugPrint('notifyDriverArrived exception: $e');
-    }
-  }
-
-  /// Verifica si el conductor está cerca del pasajero y, si no se ha notificado antes,
-  /// llama al servicio notifyDriverArrived una sola vez por viaje.
-  Future<void> _checkAndNotifyPasengerNear() async {
-    // Ya notificado: no hacer nada
-    if (widget.travelId == null) return;
-    // Debe existir posición de pasajero y del conductor
-    if (_passengerLatLng == null || _currentPosition == null) return;
-    // Driver es Near Passenger
-    if (!_isNearPassenger(thresholdMeters: 700)) return;
-
-    // Verificar si ya se notificó la llegada para este viaje
-    final dataTravel = await getTravel(widget.travelId);
-    if (dataTravel == null || dataTravel['viaje_status'] == 'driver_near') return;
-    if (dataTravel['viaje_status'] != 'accepted') return;
-
-    // Evitar llamadas sin travelId o driverId
-    final travelId = widget.travelId ?? activeTravelIdNotifier.value ?? '';
-    final driverId = _driverId ?? '';
-    if (travelId.isEmpty || driverId.isEmpty) return;
-    try {
-      final ok = await FirebaseActionService.notifyDriverNear(travelId, driverId);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Se envia notificacion al pasajero, Esta cerca el conductor')),
-      );
-      if (!ok) {
-        debugPrint('notifyDriverArrived API returned failure for travel=$travelId');
-      }
-    } catch (e) {
-      debugPrint('notifyDriverArrived exception: $e');
+      debugPrint('Error en _checkProximityAndNotify: $e');
+    } finally {
+      _checkingProximity = false;
     }
   }
 

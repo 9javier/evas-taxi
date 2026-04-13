@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -18,9 +19,7 @@ Future<void> playAlertSound() async {
   try {
     await player.setVolume(1.0);
     await player.play(AssetSource('sound1.mp3'));
-  } catch (_) {
-    // Ignorar errores
-  }
+  } catch (_) {}
 }
 
 Future<void> _handleSlideAccept(BuildContext context, String travelId) async {
@@ -56,25 +55,24 @@ Future<void> _handleSlideAccept(BuildContext context, String travelId) async {
   }
 }
 
-// Envia la notificaciòn al pasajero de que el chofer ha llegado
 Future<void> notifyDriverArrived() async {
   final travelId = activeTravelIdNotifier.value;
   final user = FirebaseAuth.instance.currentUser;
   if (travelId == null || user == null) return;
-
   try {
     await FirebaseActionService.notifyDriverArrived(travelId, user.uid);
-  } catch (_) {
-    // Ignorar errores
-  }
+  } catch (_) {}
 }
 
 Future<void> showTravelRequestDialog(BuildContext context, String travelId, String? phoneNumber) async {
-  // Verificar existencia en Firestore antes de mostrar
+  // Buscar el documento: primero en 'travels', luego en 'requestTravel' como fallback
   DocumentSnapshot<Map<String, dynamic>>? travelDoc;
   try {
-    travelDoc = await FirebaseFirestore.instance.collection('requestTravel').doc(travelId).get();
-    if (!travelDoc.exists) return;
+    travelDoc = await FirebaseFirestore.instance.collection('travels').doc(travelId).get();
+    if (!travelDoc.exists) {
+      travelDoc = await FirebaseFirestore.instance.collection('requestTravel').doc(travelId).get();
+      if (!travelDoc.exists) return;
+    }
   } catch (_) {
     return;
   }
@@ -101,23 +99,45 @@ Future<void> showTravelRequestDialog(BuildContext context, String travelId, Stri
     return null;
   }
 
-  // Obtener descripción de origen y destino
-  String originDesc = '';
-  String destinoDesc = '';
-  if (data.containsKey('description') && data['description'] is Map) {
+  // Direcciones: el schema real usa 'origin_address' y 'destination' como strings directos.
+  // 'destino' y 'origin' son los objetos de coordenadas.
+  String originDesc = data['origin_address']?.toString() ?? '';
+  String destinoDesc = data['destination']?.toString() ?? '';
+
+  // Fallbacks para otros esquemas
+  if (originDesc.isEmpty && data.containsKey('description') && data['description'] is Map) {
     final desc = data['description'] as Map;
     originDesc = desc['origin']?.toString() ?? desc['pickup']?.toString() ?? '';
+  }
+  if (destinoDesc.isEmpty && data.containsKey('description') && data['description'] is Map) {
+    final desc = data['description'] as Map;
     destinoDesc = desc['destination']?.toString() ?? desc['destino']?.toString() ?? '';
   }
-  if (originDesc.isEmpty) {
-    originDesc = data['originDesc']?.toString() ?? data['pickupDesc']?.toString() ?? 'Origen no especificado';
-  }
-  if (destinoDesc.isEmpty) {
-    destinoDesc = data['destinoDesc']?.toString() ?? data['destinationDesc']?.toString() ?? 'Destino no especificado';
-  }
+  if (originDesc.isEmpty) originDesc = data['originDesc']?.toString() ?? data['pickupDesc']?.toString() ?? 'Origen no especificado';
+  if (destinoDesc.isEmpty) destinoDesc = data['destinoDesc']?.toString() ?? data['destinationDesc']?.toString() ?? 'Destino no especificado';
 
+  // Coordenadas: 'origin' y 'destino' son los campos con lat/lng en el schema real
   final LatLng? originLatLng = parseCoord(data['origin'] ?? data['origen'] ?? data['pickup']);
-  final LatLng? destLatLng = parseCoord(data['destino'] ?? data['destination'] ?? data['dest'] ?? data['to']);
+  final LatLng? destLatLng = parseCoord(data['destino'] ?? data['destination_coords'] ?? data['dest'] ?? data['to']);
+
+  // Nombre del pasajero: buscar en 'users/{userId}'
+  String passengerName = 'Pasajero';
+  final userId = data['userId']?.toString() ?? '';
+  if (userId.isNotEmpty) {
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        final userData = userDoc.data() ?? {};
+        passengerName = userData['name']?.toString().trim() ??
+            userData['nombre']?.toString().trim() ??
+            userData['displayName']?.toString().trim() ??
+            'Pasajero';
+        if (passengerName.isEmpty) passengerName = 'Pasajero';
+      }
+    } catch (_) {
+      // Silencioso: usar nombre default si falla el lookup
+    }
+  }
 
   if (travelDialogActive) return;
   if (lastTravelIdHandled == travelId) return;
@@ -133,78 +153,367 @@ Future<void> showTravelRequestDialog(BuildContext context, String travelId, Stri
   showDialog(
     context: context,
     barrierDismissible: false,
-    builder: (context) {
-      return Dialog(
-        insetPadding: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        child: SizedBox(
-          width: MediaQuery.of(context).size.width,
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
+    barrierColor: Colors.black.withOpacity(0.6),
+    builder: (context) => _TravelRequestSheet(
+      travelId: travelId,
+      passengerName: passengerName,
+      originDesc: originDesc,
+      destinoDesc: destinoDesc,
+      originLatLng: originLatLng,
+      destLatLng: destLatLng,
+    ),
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Widget del sheet de solicitud de viaje — tema Dark Premium
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _TravelRequestSheet extends StatefulWidget {
+  final String travelId;
+  final String passengerName;
+  final String originDesc;
+  final String destinoDesc;
+  final LatLng? originLatLng;
+  final LatLng? destLatLng;
+
+  const _TravelRequestSheet({
+    required this.travelId,
+    required this.passengerName,
+    required this.originDesc,
+    required this.destinoDesc,
+    this.originLatLng,
+    this.destLatLng,
+  });
+
+  @override
+  State<_TravelRequestSheet> createState() => _TravelRequestSheetState();
+}
+
+class _TravelRequestSheetState extends State<_TravelRequestSheet> with SingleTickerProviderStateMixin {
+  static const int _timeoutSecs = 90; // 1 minuto 30 segundos
+
+  // ── Paleta Dark Premium ─────────────────────────────────────────────────────
+  static const _bg         = Color(0xFF1E1E26);
+  static const _surface    = Color(0xFF2A2A34);
+  static const _textMain   = Colors.white;
+  static const _textMuted  = Color(0xFFA0A0AB);
+  static const _accent     = Color(0xFF6366F1); // índigo
+  static const _originDot  = Color(0xFF6EE7B7); // verde esmeralda claro
+  static const _destDot    = Color(0xFFEF4444); // rojo
+  static const _routeLine  = Color(0xFF3F3F46);
+  static const _handle     = Color(0xFF3F3F46);
+  static const double _cardRadius      = 16.0;
+  static const double _sheetTopRadius  = 24.0;
+
+  late AnimationController _countdownController;
+  late Animation<double> _countdownAnim;
+  int _secondsLeft = _timeoutSecs;
+  Timer? _ticker;
+
+  // ── Lifecycle ───────────────────────────────────────────────────────────────
+
+  @override
+  void initState() {
+    super.initState();
+    _countdownController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: _timeoutSecs),
+    );
+    _countdownAnim = Tween<double>(begin: 1.0, end: 0.0).animate(
+      CurvedAnimation(parent: _countdownController, curve: Curves.linear),
+    );
+    _countdownController.forward();
+
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _secondsLeft--);
+      if (_secondsLeft <= 0) _dismiss();
+    });
+  }
+
+  @override
+  void dispose() {
+    _countdownController.dispose();
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  void _dismiss() {
+    travelDialogActive = false;
+    if (mounted && Navigator.of(context).canPop()) Navigator.of(context).pop();
+  }
+
+  // ── Widgets internos ────────────────────────────────────────────────────────
+
+  Widget _buildAvatarSection() {
+    final initials = widget.passengerName.trim().isNotEmpty
+        ? widget.passengerName.trim().split(' ').map((w) => w.isNotEmpty ? w[0] : '').take(2).join().toUpperCase()
+        : '?';
+
+    // Color determinístico basado en el nombre
+    final hue = (widget.passengerName.codeUnits.fold(0, (a, b) => a + b) % 360).toDouble();
+    final avatarBg = HSVColor.fromAHSV(1.0, hue, 0.55, 0.72).toColor();
+
+    // Color del ring según segundos restantes
+    final ringColor = _secondsLeft > 8 ? _accent : _destDot;
+    const numColor = Colors.white; // Dark Premium: texto blanco siempre
+
+    return AnimatedBuilder(
+      animation: _countdownAnim,
+      builder: (_, __) => SizedBox(
+        width: 88,
+        height: 88,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            CustomPaint(
+              size: const Size(88, 88),
+              painter: _CountdownRingPainter(
+                progress: _countdownAnim.value,
+                trackColor: _routeLine,
+                progressColor: ringColor,
+                strokeWidth: 4.0,
+              ),
+            ),
+            CircleAvatar(
+              radius: 36,
+              backgroundColor: avatarBg,
+              child: Text(
+                initials,
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+              ),
+            ),
+            Positioned(
+              bottom: 0,
+              right: 0,
+              child: Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: ringColor,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: _bg, width: 2),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  '$_secondsLeft',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: numColor),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRouteCard() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: _surface,
+        borderRadius: BorderRadius.circular(_cardRadius),
+      ),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Línea visual origen → destino: dot arriba, línea elástica, dot abajo
+            Column(
+              mainAxisSize: MainAxisSize.max,
               children: [
-                SizedBox(
-                  height: 40,
-                  child: Stack(
-                    alignment: Alignment.center,
+                Container(width: 10, height: 10, decoration: BoxDecoration(color: _originDot, shape: BoxShape.circle)),
+                Expanded(child: Center(child: Container(width: 2, color: _routeLine))),
+                Container(width: 10, height: 10, decoration: BoxDecoration(color: _destDot, borderRadius: BorderRadius.circular(2))),
+              ],
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(widget.originDesc, style: const TextStyle(color: _textMain, fontSize: 13, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 14),
+                  Text(widget.destinoDesc, style: const TextStyle(color: _textMuted, fontSize: 13), maxLines: 2, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Build ───────────────────────────────────────────────────────────────────
+
+  @override
+  Widget build(BuildContext context) {
+    // Material wrapper previene subrayados amarillos en texto fuera de Scaffold
+    return Material(
+      type: MaterialType.transparency,
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeInOut,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: _bg,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(_sheetTopRadius)),
+            boxShadow: [BoxShadow(color: Colors.black.withAlpha(60), blurRadius: 24, offset: const Offset(0, -4))],
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Handle
+                  Center(
+                    child: Container(
+                      width: 40, height: 4,
+                      decoration: BoxDecoration(color: _handle, borderRadius: BorderRadius.circular(2)),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // ── Pasajero ───────────────────────────────────────
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      const Text(
-                        'Nueva solicitud de Viaje',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                        textAlign: TextAlign.center,
+                      _buildAvatarSection(),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'NUEVA SOLICITUD',
+                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: _accent, letterSpacing: 0.9),
+                            ),
+                            const SizedBox(height: 5),
+                            Text(
+                              widget.passengerName,
+                              style: TextStyle(color: _textMain, fontSize: 20, fontWeight: FontWeight.w700),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Row(
+                              children: [
+                                Icon(Icons.person_outline_rounded, size: 13, color: _textMuted),
+                                const SizedBox(width: 4),
+                                Text('Pasajero', style: TextStyle(fontSize: 12, color: _textMuted)),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
-                      Positioned(
-                        right: 0,
-                        child: IconButton(
-                          icon: const Icon(Icons.close, color: Colors.red),
-                          tooltip: 'Cerrar',
-                          onPressed: () {
-                            travelDialogActive = false;
-                            if (Navigator.of(context).canPop()) Navigator.of(context).pop();
-                          },
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints.tightFor(width: 32, height: 32),
-                          iconSize: 22,
-                          splashRadius: 18,
-                          visualDensity: VisualDensity.compact,
+                      // Cerrar
+                      GestureDetector(
+                        onTap: _dismiss,
+                        child: Container(
+                          width: 32, height: 32,
+                          decoration: BoxDecoration(color: _surface, shape: BoxShape.circle),
+                          child: Icon(Icons.close, size: 16, color: _textMuted),
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 16),
-                if (originDesc.isNotEmpty) const SizedBox(height: 8),
-                if (originDesc.isNotEmpty) Text('Origen: $originDesc', style: const TextStyle(fontSize: 12)),
-                if (destinoDesc.isNotEmpty) const SizedBox(height: 8),
-                if (destinoDesc.isNotEmpty) Text(('Destino: $destinoDesc'), style: const TextStyle(fontSize: 12)),
-                const SizedBox(height: 12),
-                SizedBox(
-                  height: 200,
-                  child: originLatLng != null || destLatLng != null
-                      ? MapPreview(origin: originLatLng, destination: destLatLng)
-                      : Center(child: Text('No hay coordenadas disponibles', style: TextStyle(color: Colors.grey[700]))),
-                ),
-                const SizedBox(height: 32),
-                CustomSlideAction(
-                  text: 'Desliza para aceptar',
-                  textStyle: const TextStyle(fontSize: 18, color: Colors.white),
-                  outerColor: Colors.green,
-                  innerColor: Colors.white,
-                  height: 60,
-                  sliderButtonIcon: const Icon(Icons.arrow_forward, color: Colors.green),
-                  onSubmit: () async => await _handleSlideAccept(context, travelId),
-                ),
-              ],
+                  const SizedBox(height: 16),
+
+                  // ── Ruta ───────────────────────────────────────────
+                  _buildRouteCard(),
+                  const SizedBox(height: 12),
+
+                  // ── Mapa ───────────────────────────────────────────
+                  if (widget.originLatLng != null || widget.destLatLng != null)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(_cardRadius),
+                      child: SizedBox(
+                        height: 158,
+                        child: MapPreview(origin: widget.originLatLng, destination: widget.destLatLng),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+
+                  // ── Slide to accept ────────────────────────────────
+                  CustomSlideAction(
+                    text: 'Desliza para aceptar',
+                    textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: 0.3),
+                    outerColor: _accent,
+                    innerColor: Colors.white,
+                    height: 60,
+                    sliderButtonIcon: Icon(Icons.arrow_forward_rounded, color: _accent),
+                    onSubmit: () async => await _handleSlideAccept(context, widget.travelId),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
-      );
-    },
-  );
+      ),
+    );
+  }
 }
 
-// Custom slide action (copiado desde main.dart)
+// ─────────────────────────────────────────────────────────────────────────────
+// Painter para el ring de countdown alrededor del avatar
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CountdownRingPainter extends CustomPainter {
+  final double progress;      // 1.0 = lleno, 0.0 = vacío
+  final Color trackColor;
+  final Color progressColor;
+  final double strokeWidth;
+
+  const _CountdownRingPainter({
+    required this.progress,
+    required this.trackColor,
+    required this.progressColor,
+    required this.strokeWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = (size.width - strokeWidth) / 2;
+
+    // Track (fondo del ring)
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..color = trackColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth,
+    );
+
+    // Arco de progreso (empieza desde arriba, gira en sentido horario)
+    canvas.drawArc(
+      Rect.fromCircle(center: center, radius: radius),
+      -math.pi / 2,                // inicio: 12 en punto
+      2 * math.pi * progress,      // ángulo barrido
+      false,
+      Paint()
+        ..color = progressColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.round,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_CountdownRingPainter old) =>
+      old.progress != progress || old.progressColor != progressColor;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CustomSlideAction
+// ─────────────────────────────────────────────────────────────────────────────
+
 class CustomSlideAction extends StatefulWidget {
   final Future<void> Function()? onSubmit;
   final String text;
@@ -251,7 +560,9 @@ class _CustomSlideActionState extends State<CustomSlideAction> with SingleTicker
   void _animateTo(double target) {
     final start = _dx;
     _animController.reset();
-    final animation = Tween<double>(begin: start, end: target).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
+    final animation = Tween<double>(begin: start, end: target).animate(
+      CurvedAnimation(parent: _animController, curve: Curves.easeOut),
+    );
     animation.addListener(() {
       if (mounted) setState(() => _dx = animation.value);
     });
@@ -293,14 +604,21 @@ class _CustomSlideActionState extends State<CustomSlideAction> with SingleTicker
       _maxDx = (totalWidth - sliderSize - 16).clamp(0.0, double.infinity);
       return Container(
         height: widget.height,
-        decoration: BoxDecoration(color: widget.outerColor, borderRadius: BorderRadius.circular(52)),
+        decoration: BoxDecoration(
+          color: widget.outerColor,
+          borderRadius: BorderRadius.circular(52),
+        ),
         child: Stack(
           alignment: Alignment.centerLeft,
           children: [
             Center(
-              child: Opacity(
+              child: AnimatedOpacity(
                 opacity: _submitted ? 0.0 : 1.0,
-                child: Text(widget.text, style: widget.textStyle ?? const TextStyle(color: Colors.white, fontSize: 18)),
+                duration: const Duration(milliseconds: 150),
+                child: Text(
+                  widget.text,
+                  style: widget.textStyle ?? const TextStyle(color: Colors.white, fontSize: 16),
+                ),
               ),
             ),
             Positioned(
@@ -308,19 +626,23 @@ class _CustomSlideActionState extends State<CustomSlideAction> with SingleTicker
               child: GestureDetector(
                 onHorizontalDragUpdate: (details) {
                   if (_locked || _submitted) return;
-                  setState(() {
-                    _dx = (_dx + details.delta.dx).clamp(0.0, _maxDx);
-                  });
+                  setState(() => _dx = (_dx + details.delta.dx).clamp(0.0, _maxDx));
                 },
                 onHorizontalDragEnd: (_) async => await _onPanEnd(),
                 child: Container(
                   padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(color: widget.innerColor, borderRadius: BorderRadius.circular(52)),
+                  decoration: BoxDecoration(
+                    color: widget.innerColor,
+                    borderRadius: BorderRadius.circular(52),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.15), blurRadius: 8, offset: const Offset(0, 2))],
+                  ),
                   child: SizedBox(
                     height: sliderSize,
                     width: sliderSize,
                     child: Center(
-                      child: _submitted ? Icon(Icons.check, color: widget.outerColor) : (widget.sliderButtonIcon ?? Icon(Icons.arrow_forward, color: widget.outerColor)),
+                      child: _submitted
+                          ? Icon(Icons.check_rounded, color: widget.outerColor, size: 24)
+                          : (widget.sliderButtonIcon ?? Icon(Icons.arrow_forward_rounded, color: widget.outerColor)),
                     ),
                   ),
                 ),
@@ -333,7 +655,10 @@ class _CustomSlideActionState extends State<CustomSlideAction> with SingleTicker
   }
 }
 
-// MapPreview (copiado desde main.dart)
+// ─────────────────────────────────────────────────────────────────────────────
+// MapPreview
+// ─────────────────────────────────────────────────────────────────────────────
+
 class MapPreview extends StatefulWidget {
   final LatLng? origin;
   final LatLng? destination;
@@ -357,21 +682,35 @@ class _MapPreviewState extends State<MapPreview> {
   void _setup() async {
     _markers.clear();
     if (widget.origin != null) {
-      _markers.add(Marker(markerId: const MarkerId('origin'), position: widget.origin!, infoWindow: const InfoWindow(title: 'Origen')));
+      _markers.add(Marker(
+        markerId: const MarkerId('origin'),
+        position: widget.origin!,
+        infoWindow: const InfoWindow(title: 'Origen'),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+      ));
     }
     if (widget.destination != null) {
-      _markers.add(Marker(markerId: const MarkerId('destination'), position: widget.destination!, infoWindow: const InfoWindow(title: 'Destino')));
+      _markers.add(Marker(
+        markerId: const MarkerId('destination'),
+        position: widget.destination!,
+        infoWindow: const InfoWindow(title: 'Destino'),
+      ));
     }
     _polylines.clear();
     if (widget.origin != null && widget.destination != null) {
-      _polylines.add(Polyline(polylineId: const PolylineId('route'), color: Colors.blue, width: 5, points: [widget.origin!, widget.destination!]));
+      _polylines.add(Polyline(
+        polylineId: const PolylineId('route'),
+        color: const Color(0xFF007AFF),
+        width: 4,
+        points: [widget.origin!, widget.destination!],
+      ));
       final south = LatLng(
-        widget.origin!.latitude < widget.destination!.latitude ? widget.origin!.latitude : widget.destination!.latitude,
-        widget.origin!.longitude < widget.destination!.longitude ? widget.origin!.longitude : widget.destination!.longitude,
+        math.min(widget.origin!.latitude, widget.destination!.latitude),
+        math.min(widget.origin!.longitude, widget.destination!.longitude),
       );
       final north = LatLng(
-        widget.origin!.latitude > widget.destination!.latitude ? widget.origin!.latitude : widget.destination!.latitude,
-        widget.origin!.longitude > widget.destination!.longitude ? widget.origin!.longitude : widget.destination!.longitude,
+        math.max(widget.origin!.latitude, widget.destination!.latitude),
+        math.max(widget.origin!.longitude, widget.destination!.longitude),
       );
       final bounds = LatLngBounds(southwest: south, northeast: north);
       await Future.delayed(const Duration(milliseconds: 200));
@@ -391,20 +730,21 @@ class _MapPreviewState extends State<MapPreview> {
   @override
   Widget build(BuildContext context) {
     final initial = widget.origin ?? widget.destination ?? const LatLng(0, 0);
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: GoogleMap(
-        initialCameraPosition: CameraPosition(target: initial, zoom: 12),
-        markers: _markers,
-        polylines: _polylines,
-        myLocationEnabled: false,
-        zoomControlsEnabled: false,
-        liteModeEnabled: false,
-        onMapCreated: (c) {
-          _controller = c;
-          _setup();
-        },
-      ),
+    return GoogleMap(
+      initialCameraPosition: CameraPosition(target: initial, zoom: 12),
+      markers: _markers,
+      polylines: _polylines,
+      myLocationEnabled: false,
+      zoomControlsEnabled: true,
+      zoomGesturesEnabled: true,
+      scrollGesturesEnabled: true,
+      rotateGesturesEnabled: false,
+      tiltGesturesEnabled: false,
+      liteModeEnabled: false,
+      onMapCreated: (c) {
+        _controller = c;
+        _setup();
+      },
     );
   }
 }

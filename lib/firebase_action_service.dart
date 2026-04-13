@@ -42,7 +42,7 @@ class FirebaseActionService {
     }
   }
 
-  /// Llama al endpoint Cloud Function para notificar que el conductor llegó (menos de 70 meters).
+  /// Llama al endpoint Cloud Function para notificar que el conductor llegó (menos de 30 metros).
   /// Env.notifyDriverArrivedUrl debe estar configurado en config.dart
   static Future<bool> notifyDriverArrived(String travelId, String driverId) async {
     if (travelId.isEmpty || driverId.isEmpty) return false;
@@ -57,7 +57,7 @@ class FirebaseActionService {
       return false;
     }
   }
-  /// Llama al endpoint Cloud Function para notificar que el conductor está cerca (menos de 700 meters).
+  /// Llama al endpoint Cloud Function para notificar que el conductor está cerca (menos de 300 metros).
   /// Env.notifyDriverNearUrl debe estar configurado en config.dart
   static Future<bool> notifyDriverNear(String travelId, String driverId) async {
     if (travelId.isEmpty || driverId.isEmpty) return false;

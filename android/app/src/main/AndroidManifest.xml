@@ -2,6 +2,11 @@
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- Permisos requeridos para el Foreground Service de GPS -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <!-- Permite que Android no mate el proceso cuando la app está en background con GPS activo -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <application
         android:label="evas_taxi_driver"
         android:name="${applicationName}"
@@ -33,6 +38,15 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Servicio de foreground para mantener el GPS activo en background -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="location"
+            android:exported="false"/>
+        <!-- Deshabilitar Impeller: evita crash de framebuffer en GPUs con soporte limitado de OpenGL ES -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
         <!-- Google Maps API Key: Pega tu API key aquí -->
         <meta-data android:name="com.google.android.geo.API_KEY"
                    android:value="AIzaSyDElBu8oLUbkYFD4ptEy-6vpIfxaTOK3Xs"/>
