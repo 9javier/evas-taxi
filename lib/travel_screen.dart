@@ -109,6 +109,14 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   static const int _userInteractionPauseSecs = 12;
   bool _refreshing = false; // bloquea doble-tap en botón refresh
 
+  // Nombre del pasajero del viaje en cola (se carga cuando pendingTravelIdNotifier cambia)
+  String _pendingPassengerName = '';
+
+  // Vehículo activo del conductor
+  String? _activeVehicleBrand;
+  String? _activeVehicleModel;
+  String? _activeVehiclePlate;
+
   @override
   void initState() {
     super.initState();
@@ -126,6 +134,11 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     // reconstrucciones si ya estamos en viaje.
     //_navigating = driverOnTripNotifier.value;
     driverOnTripNotifier.addListener(_onDriverOnTripChanged);
+    pendingTravelIdNotifier.addListener(_onPendingTravelChanged);
+    // Cargar nombre del viaje en cola si ya existe al iniciar
+    if (pendingTravelIdNotifier.value != null && pendingTravelIdNotifier.value!.isNotEmpty) {
+      _loadPendingTravelName(pendingTravelIdNotifier.value!);
+    }
 
     // Inicializar controlador de animación para el marcador del conductor
     _markerController = AnimationController(vsync: this, duration: const Duration(milliseconds: 600))
@@ -153,6 +166,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     if (_driverId != null && _driverId!.isNotEmpty) {
       // distanceFilter y minIntervalSeconds configurables: mantienen uso de datos bajo
       _driverLocationService.start(driverId: _driverId!, distanceFilter: 20, minIntervalSeconds: 10);
+      _loadActiveVehicle();
     } else {
       debugPrint('DriverLocationService no iniciado: usuario no autenticado.');
     }
@@ -252,6 +266,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   void dispose() {
     // activeTravelIdNotifier.removeListener(_onActiveTravelIdChanged); // eliminado
     driverOnTripNotifier.removeListener(_onDriverOnTripChanged);
+    pendingTravelIdNotifier.removeListener(_onPendingTravelChanged);
     tabsIndexNotifier.removeListener(_onTabChanged);
     // Detener servicio de ubicación al cerrar la pantalla
     _driverLocationService.stop();
@@ -604,6 +619,43 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   void _onDriverOnTripChanged() {
     debugPrint('driverOnTripNotifier changed -> ${driverOnTripNotifier.value}');
     if (mounted) setState(() => _navigating = driverOnTripNotifier.value);
+  }
+
+  void _onPendingTravelChanged() {
+    final id = pendingTravelIdNotifier.value;
+    if (id != null && id.isNotEmpty) {
+      // Forzar reconstrucción inmediata para que el chip aparezca antes de que termine el fetch del nombre.
+      _safeSetState(() {});
+      _loadPendingTravelName(id);
+    } else {
+      _safeSetState(() => _pendingPassengerName = '');
+    }
+  }
+
+  Future<void> _loadPendingTravelName(String travelId) async {
+    try {
+      // El viaje en cola puede estar en requestTravel (status: queued) antes de promoverse
+      DocumentSnapshot<Map<String, dynamic>> doc =
+          await FirebaseFirestore.instance.collection('travels').doc(travelId).get();
+      if (!doc.exists) {
+        doc = await FirebaseFirestore.instance.collection('requestTravel').doc(travelId).get();
+      }
+      if (!doc.exists || !mounted) return;
+      final data = doc.data() ?? {};
+      final userId = data['userId']?.toString() ?? '';
+      if (userId.isNotEmpty) {
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
+        if (userDoc.exists && mounted) {
+          final ud = userDoc.data() ?? {};
+          final name = (ud['name'] ?? ud['nombre'] ?? ud['displayName'] ?? '').toString().trim();
+          if (name.isNotEmpty) {
+            _safeSetState(() => _pendingPassengerName = name);
+            return;
+          }
+        }
+      }
+      _safeSetState(() => _pendingPassengerName = '');
+    } catch (_) {}
   }
 
   void _onTabChanged() {
@@ -1102,17 +1154,17 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                 ElevatedButton.icon(
                   onPressed: _openLocationSettings,
                   icon: const Icon(Icons.location_on),
-                  label: const Text('Abrir ubicación'),
+                  label: const Text('Enable Location'),
                 ),
                 ElevatedButton.icon(
                   onPressed: _openAppSettings,
                   icon: const Icon(Icons.settings),
-                  label: const Text('Abrir ajustes'),
+                  label: const Text('Open Settings'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _getCurrentLocation,
                   icon: const Icon(Icons.refresh),
-                  label: const Text('Reintentar'),
+                  label: const Text('Retry'),
                 ),
               ],
             ),
@@ -1121,7 +1173,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       );
     }
     if (_currentPosition == null) {
-      return const Center(child: Text('No se pudo obtener la ubicación'));
+      return const Center(child: Text('Could not retrieve location'));
     }
 
     final bottomOffset = MediaQuery.of(context).padding.bottom + 5.0;
@@ -1175,6 +1227,15 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             child: Center(child: _buildDistancePill()),
           ),
 
+        // Chip de viaje en cola — debajo del pill de distancia
+        if (pendingTravelIdNotifier.value != null && pendingTravelIdNotifier.value!.isNotEmpty)
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 62,
+            left: 0,
+            right: 0,
+            child: Center(child: _buildQueuedTripChip()),
+          ),
+
         // Botón de refresh — esquina superior derecha
         Positioned(
           top: MediaQuery.of(context).padding.top + 8,
@@ -1197,6 +1258,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             ),
           ),
         ),
+
         Positioned(
            left: 0,
            right: 0,
@@ -1266,26 +1328,26 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     final passengerText = _passengerAddress ??
         (_passengerLatLng != null
             ? '${_passengerLatLng!.latitude.toStringAsFixed(5)}, ${_passengerLatLng!.longitude.toStringAsFixed(5)}'
-            : 'Origen no especificado');
+            : 'Origin not specified');
     final destinationText = _destinationAddress ??
         (_dropoffLatLng != null
             ? '${_dropoffLatLng!.latitude.toStringAsFixed(5)}, ${_dropoffLatLng!.longitude.toStringAsFixed(5)}'
-            : 'Destino no especificado');
+            : 'Destination not specified');
 
     // Etiqueta y color del estado del viaje
     String statusLabel;
     Color statusColor;
     if (_navigating && _passengerPickedUp) {
-      statusLabel = 'Viaje en progreso';
+      statusLabel = 'Trip in progress';
       statusColor = _tsAccent;
     } else if (_notifiedDriverArrived) {
-      statusLabel = 'Has llegado';
+      statusLabel = 'You have arrived';
       statusColor = _tsOriginDot;
     } else if (_notifiedDriverNear) {
-      statusLabel = 'Cerca del pasajero';
+      statusLabel = 'Near the passenger';
       statusColor = const Color(0xFFF59E0B);
     } else if (hasTravel) {
-      statusLabel = 'En camino';
+      statusLabel = 'On the way';
       statusColor = _tsTextMuted;
     } else {
       statusLabel = '';
@@ -1319,7 +1381,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                     child: const Icon(Icons.hourglass_empty_rounded, color: _tsTextMuted, size: 20),
                   ),
                   const SizedBox(width: 14),
-                  const Text('Sin viaje activo', style: TextStyle(color: _tsTextMuted, fontSize: 16, fontWeight: FontWeight.w500)),
+                  const Text('No active trip', style: TextStyle(color: _tsTextMuted, fontSize: 16, fontWeight: FontWeight.w500)),
                 ],
               ),
             ),
@@ -1441,7 +1503,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                 child: ValueListenableBuilder<bool>(
                   valueListenable: driverOnTripNotifier,
                   builder: (context, _, __) => CustomSlideAction(
-                    text: 'Desliza para terminar viaje',
+                    text: 'Slide to end trip',
                     textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: 0.3),
                     outerColor: _tsDestDot,
                     innerColor: Colors.white,
@@ -1452,14 +1514,14 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                       final driverId = _driverId ?? '';
                       if (travelId.isEmpty || driverId.isEmpty) {
                         _endTrip();
-                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Viaje finalizado (local)')));
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trip ended (local)')));
                         return;
                       }
                       final ok = await FirebaseActionService.completeTravel(travelId, driverId);
                       _endTrip();
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text(ok ? 'Viaje finalizado' : 'Viaje finalizado localmente (error al notificar backend)'),
+                          content: Text(ok ? 'Trip completed' : 'Trip ended locally (backend notification failed)'),
                         ));
                       }
                     },
@@ -1497,12 +1559,15 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   }
 
   void _endTrip() {
+    final queuedId = pendingTravelIdNotifier.value;
+
     _safeSetState(() {
       _passengerLatLng = null;
       _destinationLatLng = null;
       _dropoffLatLng = null;
       _passengerPickedUp = false;
-      _passengerName = 'Pasajero'; // resetear nombre para el próximo viaje
+      _passengerName = 'Passenger'; // reset name for the next trip
+      _pendingPassengerName = '';
       _notifiedDriverNear = false;
       _notifiedDriverArrived = false;
       _checkingProximity = false;
@@ -1512,8 +1577,61 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       _navigating = false;
     });
     if (driverOnTripNotifier.value) driverOnTripNotifier.value = false;
-    // Limpiar el travelId global: el viaje terminó
     activeTravelIdNotifier.value = null;
+
+    // Si hay un viaje en cola, iniciarlo automáticamente
+    if (queuedId != null && queuedId.isNotEmpty) {
+      pendingTravelIdNotifier.value = null;
+      _startQueuedTrip(queuedId);
+    } else {
+      // Sin viaje en cola: el driver quedó libre — resetear el contador en Firestore
+      if (_driverId != null && _driverId!.isNotEmpty) {
+        FirebaseFirestore.instance
+            .collection('drivers')
+            .doc(_driverId)
+            .update({'activeTripsCount': 0})
+            .catchError((e) => debugPrint('Error reseteando activeTripsCount: $e'));
+      }
+    }
+  }
+
+  Future<void> _startQueuedTrip(String queuedId) async {
+    if (!mounted) return;
+
+    // Capturar navigator antes del primer await para evitar usar context después de gaps asíncronos
+    final nav = Navigator.of(context);
+
+    // Mostrar popup informativo que se auto-descarta
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black54,
+      builder: (_) => const _StartingQueuedTripDialog(),
+    );
+
+    try {
+      // El viaje ya está en travels con status 'queued' (lo puso ahí acceptTravel con queueMode:true).
+      // La CF promoteQueuedTravel lo promueve a 'accepted' y actualiza currentTravelId del driver.
+      // activeTripsCount ya fue decrementado por completeTravel al terminar el 1er viaje.
+      final driverId = _driverId ?? '';
+      if (driverId.isNotEmpty) {
+        final ok = await FirebaseActionService.promoteQueuedTravel(queuedId, driverId);
+        if (!ok) debugPrint('[startQueuedTrip] promoteQueuedTravel falló para $queuedId');
+      }
+    } catch (e) {
+      debugPrint('Error promoviendo viaje en cola: $e');
+    }
+
+    await Future.delayed(const Duration(milliseconds: 1600));
+    if (mounted && nav.canPop()) nav.pop();
+
+    // Cargar el viaje como el nuevo viaje activo
+    activeTravelIdNotifier.value = queuedId;
+    _loadingTravelData = false;
+    _notifiedDriverNear = false;
+    _notifiedDriverArrived = false;
+    _mapCenteredInitially = false;
+    await _loadTravelData(queuedId);
   }
 
   /// Método unificado de proximidad.
@@ -1597,7 +1715,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       if (!mounted) return;
       if (!serviceEnabled) {
         _safeSetState(() {
-          _locationError = 'Servicio de ubicación deshabilitado. Por favor activa la ubicación.';
+          _locationError = 'Location services are disabled. Please enable location.';
           _loadingLocation = false;
         });
         return;
@@ -1610,14 +1728,14 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       }
       if (permission == LocationPermission.denied) {
         _safeSetState(() {
-          _locationError = 'Permiso de ubicación denegado. Por favor habilítalo en ajustes.';
+          _locationError = 'Location permission denied. Please enable it in settings.';
           _loadingLocation = false;
         });
         return;
       }
       if (permission == LocationPermission.deniedForever) {
         _safeSetState(() {
-          _locationError = 'Permiso de ubicación denegado permanentemente. Abre ajustes de la app para habilitarlo.';
+          _locationError = 'Location permission permanently denied. Open the app settings to enable it.';
           _loadingLocation = false;
         });
         return;
@@ -1656,7 +1774,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       if (!mounted) return;
       _safeSetState(() {
         _loadingLocation = false;
-        _locationError = 'Error obteniendo ubicación: $e';
+        _locationError = 'Error retrieving location: $e';
       });
     }
   }
@@ -1666,11 +1784,11 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     try {
       final opened = await Geolocator.openLocationSettings();
       if (!opened && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo abrir ajustes de ubicación')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open location settings')));
       }
     } catch (e) {
       debugPrint('_openLocationSettings error: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error abriendo ajustes de ubicación')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error opening location settings')));
     }
   }
 
@@ -1679,11 +1797,11 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     try {
       final opened = await Geolocator.openAppSettings();
       if (!opened && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo abrir ajustes de la app')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open app settings')));
       }
     } catch (e) {
       debugPrint('_openAppSettings error: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error abriendo ajustes de la app')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error opening app settings')));
     }
   }
 
@@ -1744,6 +1862,76 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     );
   }
 
+  /// Chip ámbar que indica que hay un 2do viaje esperando en cola.
+  /// Carga el vehículo activo (on: true) del documento del driver en Firestore.
+  Future<void> _loadActiveVehicle() async {
+    if (_driverId == null || _driverId!.isEmpty) return;
+    try {
+      final doc = await FirebaseFirestore.instance.collection('drivers').doc(_driverId).get();
+      if (!doc.exists || doc.data() == null) return;
+      final vehicles = doc.data()!['vehicles'];
+      if (vehicles is Map) {
+        vehicles.forEach((key, value) {
+          if (value is Map && value['on'] == true) {
+            final model = value['model']?.toString() ?? '';
+            final plate = value['plate']?.toString() ?? '';
+            _safeSetState(() {
+              _activeVehicleBrand = value['brand']?.toString();
+              _activeVehicleModel = model;
+              _activeVehiclePlate = plate;
+            });
+            // Actualizar label global para el tab de viaje
+            final parts = [model, plate].where((s) => s.isNotEmpty);
+            activeVehicleLabelNotifier.value = parts.isNotEmpty ? parts.join(' · ') : '';
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Error cargando vehículo activo: $e');
+    }
+  }
+
+  Widget _buildQueuedTripChip() {
+    final name = _pendingPassengerName.isNotEmpty ? ' · $_pendingPassengerName' : '';
+    return GestureDetector(
+      onTap: _showQueuedTripSheet,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF59E0B),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(color: const Color(0xFFF59E0B).withOpacity(0.4), blurRadius: 10, offset: const Offset(0, 3)),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.schedule_rounded, color: Colors.black87, size: 14),
+            const SizedBox(width: 6),
+            Text(
+              'Queued Trip$name',
+              style: const TextStyle(color: Colors.black87, fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right_rounded, color: Colors.black54, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Muestra un sheet con la info mínima del viaje en cola.
+  void _showQueuedTripSheet() {
+    final id = pendingTravelIdNotifier.value;
+    if (id == null || id.isEmpty) return;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _QueuedTripInfoSheet(travelId: id),
+    );
+  }
+
   /// Pill oscuro que flota sobre el mapa con la distancia actual.
   Widget _buildDistancePill() {
     if (_currentPosition == null) return const SizedBox.shrink();
@@ -1762,7 +1950,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         _currentPosition!.latitude, _currentPosition!.longitude,
         _passengerLatLng!.latitude, _passengerLatLng!.longitude,
       );
-      label = 'Al pasajero   ${fmt(d)}';
+      label = 'To passenger   ${fmt(d)}';
       icon = Icons.person_pin_circle_rounded;
       dotColor = _tsOriginDot;
     } else {
@@ -1772,7 +1960,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         _currentPosition!.latitude, _currentPosition!.longitude,
         target.latitude, target.longitude,
       );
-      label = 'Al destino   ${fmt(d)}';
+      label = 'To destination   ${fmt(d)}';
       icon = Icons.flag_rounded;
       dotColor = _tsDestDot;
     }
@@ -1815,7 +2003,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       );
       icon = Icons.person_pin_circle_rounded;
       dotColor = _tsOriginDot;
-      prefix = 'Al pasajero';
+      prefix = 'To passenger';
     } else if (_passengerPickedUp) {
       final target = _destinationLatLng ?? _dropoffLatLng;
       if (target != null) {
@@ -1826,7 +2014,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       }
       icon = Icons.flag_rounded;
       dotColor = _tsDestDot;
-      prefix = 'Al destino';
+      prefix = 'To destination';
     } else {
       return const SizedBox.shrink();
     }
@@ -1875,7 +2063,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             Icon(Icons.play_arrow_rounded, color: near ? _tsCardBg : _tsTextMuted, size: 22),
             const SizedBox(width: 8),
             Text(
-              near ? 'INICIAR VIAJE' : 'INICIAR VIAJE  —  acércate al pasajero',
+              near ? 'START TRIP' : 'START TRIP  —  get closer to the passenger',
               style: TextStyle(fontSize: near ? 15 : 12, fontWeight: FontWeight.w700, color: near ? _tsCardBg : _tsTextMuted, letterSpacing: 0.4),
             ),
           ],
@@ -1884,6 +2072,218 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     );
   }
 
+}
+
+// ── Dialog que aparece al iniciar automáticamente el viaje en cola ────────────
+class _StartingQueuedTripDialog extends StatelessWidget {
+  const _StartingQueuedTripDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF1E1E26),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const CircularProgressIndicator(color: Color(0xFF6366F1), strokeWidth: 2.5),
+            const SizedBox(height: 20),
+            const Text(
+              'Starting queued\ntrip...',
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600, height: 1.4),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Sheet con info mínima del viaje en cola (al tocar el chip) ────────────────
+class _QueuedTripInfoSheet extends StatefulWidget {
+  final String travelId;
+  const _QueuedTripInfoSheet({required this.travelId});
+
+  @override
+  State<_QueuedTripInfoSheet> createState() => _QueuedTripInfoSheetState();
+}
+
+class _QueuedTripInfoSheetState extends State<_QueuedTripInfoSheet> {
+  static const _bg      = Color(0xFF1E1E26);
+  static const _surface = Color(0xFF2A2A34);
+  static const _amber   = Color(0xFFF59E0B);
+  static const _green   = Color(0xFF6EE7B7);
+  static const _red     = Color(0xFFEF4444);
+  static const _muted   = Color(0xFFA0A0AB);
+  static const _line    = Color(0xFF3F3F46);
+
+  bool _loading = true;
+  String _passengerName = '';
+  String _origin = '';
+  String _destination = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      // El viaje en cola puede estar en requestTravel antes de promoverse a travels
+      DocumentSnapshot<Map<String, dynamic>> doc =
+          await FirebaseFirestore.instance.collection('travels').doc(widget.travelId).get();
+      if (!doc.exists) {
+        doc = await FirebaseFirestore.instance.collection('requestTravel').doc(widget.travelId).get();
+      }
+      if (!doc.exists || !mounted) { setState(() => _loading = false); return; }
+      final data = doc.data() ?? {};
+
+      // Nombre del pasajero
+      final userId = data['userId']?.toString() ?? '';
+      if (userId.isNotEmpty) {
+        final ud = await FirebaseFirestore.instance.collection('users').doc(userId).get();
+        if (ud.exists) {
+          final udata = ud.data() ?? {};
+          _passengerName = (udata['name'] ?? udata['nombre'] ?? udata['displayName'] ?? '').toString().trim();
+        }
+      }
+      if (_passengerName.isEmpty) _passengerName = 'Passenger';
+
+      // Direcciones
+      _origin = data['origin_address']?.toString() ?? '';
+      _destination = data['destination']?.toString() ?? '';
+
+      if (_origin.isEmpty && data['description'] is Map) {
+        _origin = (data['description'] as Map)['origin']?.toString() ?? '';
+      }
+      if (_destination.isEmpty && data['description'] is Map) {
+        _destination = (data['description'] as Map)['destination']?.toString() ?? '';
+      }
+      if (_origin.isEmpty) _origin = 'Origin not specified';
+      if (_destination.isEmpty) _destination = 'Destination not specified';
+    } catch (_) {}
+    if (mounted) setState(() => _loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: _bg,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 40, height: 4,
+                  decoration: BoxDecoration(color: _line, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Encabezado con badge
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: _amber.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: _amber.withOpacity(0.4)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: const [
+                        Icon(Icons.schedule_rounded, size: 13, color: _amber),
+                        SizedBox(width: 5),
+                        Text('Queued Trip', style: TextStyle(color: _amber, fontSize: 12, fontWeight: FontWeight.w700)),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  const Text(
+                    'Starts once the current trip ends',
+                    style: TextStyle(color: _muted, fontSize: 11),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: CircularProgressIndicator(color: _amber, strokeWidth: 2),
+                )
+              else ...[
+                // Nombre pasajero
+                Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: _surface,
+                      child: Text(
+                        _passengerName.isNotEmpty ? _passengerName[0].toUpperCase() : 'P',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      _passengerName,
+                      style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+
+                // Tarjeta de ruta
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(color: _surface, borderRadius: BorderRadius.circular(14)),
+                  child: IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Column(
+                          mainAxisSize: MainAxisSize.max,
+                          children: [
+                            Container(width: 9, height: 9, decoration: const BoxDecoration(color: _green, shape: BoxShape.circle)),
+                            Expanded(child: Center(child: Container(width: 2, color: _line))),
+                            Container(width: 9, height: 9, decoration: BoxDecoration(color: _red, borderRadius: BorderRadius.circular(2))),
+                          ],
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(_origin, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
+                              const SizedBox(height: 12),
+                              Text(_destination, style: const TextStyle(color: _muted, fontSize: 13), maxLines: 2, overflow: TextOverflow.ellipsis),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 // Implementación local de CustomSlideAction (swipe to confirm) para terminar viaje
@@ -1899,7 +2299,7 @@ class CustomSlideAction extends StatefulWidget {
   const CustomSlideAction({
     Key? key,
     this.onSubmit,
-    this.text = 'Desliza',
+    this.text = 'Slide',
     this.textStyle,
     this.outerColor = Colors.green,
     this.innerColor = Colors.white,

@@ -4,22 +4,37 @@ import 'config.dart';
 
 class FirebaseActionService {
   /// Llama al endpoint Cloud Function para aceptar un viaje.
-  /// El endpoint espera JSON { travelId, driverId } vía POST.
+  /// [queueMode] = true cuando el driver ya tiene un viaje activo y acepta un segundo:
+  ///   el viaje se mueve requestTravel → travels con status 'queued' en lugar de 'accepted'.
   /// Retorna true si la función responde con status 200.
-  static Future<bool> acceptTravel(String travelId, String driverId) async {
+  static Future<bool> acceptTravel(String travelId, String driverId, {bool queueMode = false}) async {
     if (travelId.isEmpty || driverId.isEmpty) return false;
 
     try {
       final resp = await http
           .post(Uri.parse(Env.acceptTravelUrl),
               headers: {'Content-Type': 'application/json'},
-              body: jsonEncode({'travelId': travelId, 'driverId': driverId}))
+              body: jsonEncode({'travelId': travelId, 'driverId': driverId, 'queueMode': queueMode}))
           .timeout(const Duration(seconds: 8));
 
-      if (resp.statusCode == 200) {
-        return true;
-      }
+      return resp.statusCode == 200;
+    } catch (e) {
       return false;
+    }
+  }
+
+  /// Llama al endpoint Cloud Function para promover el viaje en cola a activo.
+  /// Se usa cuando el conductor termina su 1er viaje y el 2do (queued) debe arrancar.
+  /// Retorna true si la función responde con status 200.
+  static Future<bool> promoteQueuedTravel(String travelId, String driverId) async {
+    if (travelId.isEmpty || driverId.isEmpty) return false;
+    try {
+      final resp = await http
+          .post(Uri.parse(Env.promoteQueuedTravelUrl),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({'travelId': travelId, 'driverId': driverId}))
+          .timeout(const Duration(seconds: 8));
+      return resp.statusCode == 200;
     } catch (e) {
       return false;
     }

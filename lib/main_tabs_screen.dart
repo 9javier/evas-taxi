@@ -45,36 +45,42 @@ class _MainTabsScreenState extends State<MainTabsScreen> {
         ? BorderSide.none
         : const BorderSide(color: _navSeparator, width: 1);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: bg,
-        border: Border(top: topBorder),
-      ),
-      child: BottomNavigationBar(
-        currentIndex: selectedIndex,
-        onTap: onTap,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        selectedItemColor: selected,
-        unselectedItemColor: muted,
-        type: BottomNavigationBarType.fixed,
-        selectedFontSize: 11,
-        unselectedFontSize: 11,
-        selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0.3),
-        unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w400),
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.directions_car_rounded),
-            activeIcon: Icon(Icons.directions_car_rounded),
-            label: 'Viaje',
+    return ValueListenableBuilder<String>(
+      valueListenable: activeVehicleLabelNotifier,
+      builder: (context, vehicleLabel, _) {
+        final tripLabel = vehicleLabel.isNotEmpty ? vehicleLabel : 'Trip';
+        return Container(
+          decoration: BoxDecoration(
+            color: bg,
+            border: Border(top: topBorder),
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline_rounded),
-            activeIcon: Icon(Icons.person_rounded),
-            label: 'Perfil',
+          child: BottomNavigationBar(
+            currentIndex: selectedIndex,
+            onTap: onTap,
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            selectedItemColor: selected,
+            unselectedItemColor: muted,
+            type: BottomNavigationBarType.fixed,
+            selectedFontSize: 10,
+            unselectedFontSize: 10,
+            selectedLabelStyle: const TextStyle(fontWeight: FontWeight.w600, letterSpacing: 0.2),
+            unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w400),
+            items: [
+              BottomNavigationBarItem(
+                icon: const Icon(Icons.directions_car_rounded),
+                activeIcon: const Icon(Icons.directions_car_rounded),
+                label: tripLabel,
+              ),
+              const BottomNavigationBarItem(
+                icon: Icon(Icons.person_outline_rounded),
+                activeIcon: Icon(Icons.person_rounded),
+                label: 'Profile',
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -116,6 +122,21 @@ class _MainTabsScreenState extends State<MainTabsScreen> {
         driverOnTripNotifier.value = true;
       }
       tabsIndexNotifier.value = 0; // asegurar pestaña Travel
+
+      // Buscar también viaje en cola (queued) para este driver
+      try {
+        final queuedQ = await FirebaseFirestore.instance
+            .collection('travels')
+            .where('driverId', isEqualTo: driverId)
+            .where('viaje_status', isEqualTo: 'queued')
+            .limit(1)
+            .get();
+        if (queuedQ.docs.isNotEmpty &&
+            (pendingTravelIdNotifier.value == null || pendingTravelIdNotifier.value!.isEmpty)) {
+          pendingTravelIdNotifier.value = queuedQ.docs.first.id;
+          debugPrint('[restore] Viaje en cola restaurado: ${queuedQ.docs.first.id}');
+        }
+      } catch (_) {}
     } catch (e) {
       // silencioso
     }

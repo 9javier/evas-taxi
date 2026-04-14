@@ -11,6 +11,8 @@ class Env {
   static const String notifyDriverNearUrl = 'https://us-central1-taxiusa-atlanta.cloudfunctions.net/testFCM';
   // URL del Cloud Function que actualiza el estado del viaje
   static const String updateTravelStatusUrl = 'https://us-central1-taxiusa-atlanta.cloudfunctions.net/updateTravelStatus';
+  // URL del Cloud Function que promueve el viaje en cola a activo al terminar el 1er viaje
+  static const String promoteQueuedTravelUrl = 'https://us-central1-taxiusa-atlanta.cloudfunctions.net/promoteQueuedTravel';
 }
 
 class Config {

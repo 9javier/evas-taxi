@@ -28,7 +28,7 @@ Future<void> _handleSlideAccept(BuildContext context, String travelId) async {
   final user = FirebaseAuth.instance.currentUser;
   if (user == null) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No estás autenticado.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You are not authenticated.')));
     }
     return;
   }
@@ -45,12 +45,43 @@ Future<void> _handleSlideAccept(BuildContext context, String travelId) async {
       tabsIndexNotifier.value = 0;
     } else {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No se pudo aceptar el viaje. Intenta de nuevo.')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not accept the trip. Please try again.')));
       }
     }
   } catch (e) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al aceptar el viaje.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('An error occurred while accepting the trip.')));
+    }
+  }
+}
+
+/// Pone el viaje en cola cuando el driver ya tiene uno activo.
+/// Usa acceptTravel con queueMode=true: mueve requestTravel → travels con status 'queued'
+/// e incrementa activeTripsCount, igual que una aceptación normal pero sin iniciar el viaje.
+Future<void> _handleSlideQueue(BuildContext context, String travelId) async {
+  lastTravelIdHandled = travelId;
+
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You are not authenticated.')));
+    }
+    return;
+  }
+
+  try {
+    final accepted = await FirebaseActionService.acceptTravel(travelId, user.uid, queueMode: true);
+    if (accepted) {
+      pendingTravelIdNotifier.value = travelId;
+      tabsIndexNotifier.value = 0;
+    } else {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This trip is no longer available or could not be queued.')));
+      }
+    }
+  } catch (e) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('An error occurred while queueing the trip.')));
     }
   }
 }
@@ -113,8 +144,8 @@ Future<void> showTravelRequestDialog(BuildContext context, String travelId, Stri
     final desc = data['description'] as Map;
     destinoDesc = desc['destination']?.toString() ?? desc['destino']?.toString() ?? '';
   }
-  if (originDesc.isEmpty) originDesc = data['originDesc']?.toString() ?? data['pickupDesc']?.toString() ?? 'Origen no especificado';
-  if (destinoDesc.isEmpty) destinoDesc = data['destinoDesc']?.toString() ?? data['destinationDesc']?.toString() ?? 'Destino no especificado';
+  if (originDesc.isEmpty) originDesc = data['originDesc']?.toString() ?? data['pickupDesc']?.toString() ?? 'Origin not specified';
+  if (destinoDesc.isEmpty) destinoDesc = data['destinoDesc']?.toString() ?? data['destinationDesc']?.toString() ?? 'Destination not specified';
 
   // Coordenadas: 'origin' y 'destino' son los campos con lat/lng en el schema real
   final LatLng? originLatLng = parseCoord(data['origin'] ?? data['origen'] ?? data['pickup']);
@@ -131,17 +162,23 @@ Future<void> showTravelRequestDialog(BuildContext context, String travelId, Stri
         passengerName = userData['name']?.toString().trim() ??
             userData['nombre']?.toString().trim() ??
             userData['displayName']?.toString().trim() ??
-            'Pasajero';
-        if (passengerName.isEmpty) passengerName = 'Pasajero';
+            'Passenger';
+        if (passengerName.isEmpty) passengerName = 'Passenger';
       }
     } catch (_) {
       // Silencioso: usar nombre default si falla el lookup
     }
   }
 
+  // Bloquear si ya tiene un viaje en cola — el driver no puede tener más de 2
+  if (pendingTravelIdNotifier.value != null && pendingTravelIdNotifier.value!.isNotEmpty) return;
+
   if (travelDialogActive) return;
   if (lastTravelIdHandled == travelId) return;
   travelDialogActive = true;
+
+  // Determinar si el driver ya tiene un viaje activo (modo cola vs. modo normal)
+  final bool isQueueMode = activeTravelIdNotifier.value != null && activeTravelIdNotifier.value!.isNotEmpty;
 
   await playAlertSound();
 
@@ -161,6 +198,7 @@ Future<void> showTravelRequestDialog(BuildContext context, String travelId, Stri
       destinoDesc: destinoDesc,
       originLatLng: originLatLng,
       destLatLng: destLatLng,
+      isQueueMode: isQueueMode,
     ),
   );
 }
@@ -176,6 +214,8 @@ class _TravelRequestSheet extends StatefulWidget {
   final String destinoDesc;
   final LatLng? originLatLng;
   final LatLng? destLatLng;
+  // true cuando el driver ya tiene un viaje activo — se pondrá en cola, no iniciará ya
+  final bool isQueueMode;
 
   const _TravelRequestSheet({
     required this.travelId,
@@ -184,6 +224,7 @@ class _TravelRequestSheet extends StatefulWidget {
     required this.destinoDesc,
     this.originLatLng,
     this.destLatLng,
+    this.isQueueMode = false,
   });
 
   @override
@@ -389,9 +430,33 @@ class _TravelRequestSheetState extends State<_TravelRequestSheet> with SingleTic
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              'NUEVA SOLICITUD',
-                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: _accent, letterSpacing: 0.9),
+                            Row(
+                              children: [
+                                Text(
+                                  widget.isQueueMode ? 'QUEUED TRIP' : 'NEW RIDE REQUEST',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: widget.isQueueMode ? const Color(0xFFF59E0B) : _accent,
+                                    letterSpacing: 0.9,
+                                  ),
+                                ),
+                                if (widget.isQueueMode) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF59E0B).withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.4)),
+                                    ),
+                                    child: const Text(
+                                      '2nd ride',
+                                      style: TextStyle(fontSize: 9, color: Color(0xFFF59E0B), fontWeight: FontWeight.w600),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                             const SizedBox(height: 5),
                             Text(
@@ -405,7 +470,7 @@ class _TravelRequestSheetState extends State<_TravelRequestSheet> with SingleTic
                               children: [
                                 Icon(Icons.person_outline_rounded, size: 13, color: _textMuted),
                                 const SizedBox(width: 4),
-                                Text('Pasajero', style: TextStyle(fontSize: 12, color: _textMuted)),
+                                Text('Passenger', style: TextStyle(fontSize: 12, color: _textMuted)),
                               ],
                             ),
                           ],
@@ -439,15 +504,46 @@ class _TravelRequestSheetState extends State<_TravelRequestSheet> with SingleTic
                     ),
                   const SizedBox(height: 16),
 
-                  // ── Slide to accept ────────────────────────────────
+                  // ── Nota informativa en modo cola ──────────────────
+                  if (widget.isQueueMode) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B).withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFF59E0B).withOpacity(0.25)),
+                      ),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFFF59E0B)),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Will start once your current trip is complete.',
+                              style: TextStyle(fontSize: 12, color: Color(0xFFF59E0B)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  // ── Slide to accept / queue ────────────────────────
                   CustomSlideAction(
-                    text: 'Desliza para aceptar',
+                    text: widget.isQueueMode ? 'Slide to queue' : 'Slide to accept',
                     textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white, letterSpacing: 0.3),
-                    outerColor: _accent,
+                    outerColor: widget.isQueueMode ? const Color(0xFFF59E0B) : _accent,
                     innerColor: Colors.white,
                     height: 60,
-                    sliderButtonIcon: Icon(Icons.arrow_forward_rounded, color: _accent),
-                    onSubmit: () async => await _handleSlideAccept(context, widget.travelId),
+                    sliderButtonIcon: Icon(
+                      widget.isQueueMode ? Icons.schedule_rounded : Icons.arrow_forward_rounded,
+                      color: widget.isQueueMode ? const Color(0xFFF59E0B) : _accent,
+                    ),
+                    onSubmit: () async => widget.isQueueMode
+                        ? await _handleSlideQueue(context, widget.travelId)
+                        : await _handleSlideAccept(context, widget.travelId),
                   ),
                 ],
               ),
@@ -526,7 +622,7 @@ class CustomSlideAction extends StatefulWidget {
   const CustomSlideAction({
     Key? key,
     this.onSubmit,
-    this.text = 'Desliza para aceptar',
+    this.text = 'Slide to accept',
     this.textStyle,
     this.outerColor = Colors.green,
     this.innerColor = Colors.white,
@@ -685,7 +781,7 @@ class _MapPreviewState extends State<MapPreview> {
       _markers.add(Marker(
         markerId: const MarkerId('origin'),
         position: widget.origin!,
-        infoWindow: const InfoWindow(title: 'Origen'),
+        infoWindow: const InfoWindow(title: 'Pickup'),
         icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
       ));
     }
@@ -693,7 +789,7 @@ class _MapPreviewState extends State<MapPreview> {
       _markers.add(Marker(
         markerId: const MarkerId('destination'),
         position: widget.destination!,
-        infoWindow: const InfoWindow(title: 'Destino'),
+        infoWindow: const InfoWindow(title: 'Destination'),
       ));
     }
     _polylines.clear();
