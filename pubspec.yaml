@@ -84,6 +84,7 @@ flutter:
     - assets/fondo3.jpeg
     - assets/fondo4.jpeg
     - assets/fondo5.jpeg
+    - assets/splash.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
