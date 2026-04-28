@@ -1935,10 +1935,15 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   /// Pill oscuro que flota sobre el mapa con la distancia actual.
   Widget _buildDistancePill() {
     if (_currentPosition == null) return const SizedBox.shrink();
-    const double mpm = 1609.344;
-    String fmt(double m) => m >= mpm
-        ? '${(m / mpm) < 10 ? (m / mpm).toStringAsFixed(1) : (m / mpm).toStringAsFixed(0)} mi'
-        : '${m.round()} m';
+    const double mpm = 1609.344;   // meters per mile
+    const double mft = 0.3048;     // meters per foot
+    String fmt(double m) {
+      if (m >= mpm) {
+        final mi = m / mpm;
+        return '${mi < 10 ? mi.toStringAsFixed(1) : mi.toStringAsFixed(0)} mi';
+      }
+      return '${(m / mft).round()} ft';
+    }
 
     String label;
     IconData icon;
@@ -1986,10 +1991,15 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   /// Chip de distancia dentro del panel inferior (más detallado que el pill).
   Widget _buildInlineDistanceChip() {
     if (_currentPosition == null) return const SizedBox.shrink();
-    const double mpm = 1609.344;
-    String fmt(double m) => m >= mpm
-        ? '${(m / mpm) < 10 ? (m / mpm).toStringAsFixed(1) : (m / mpm).toStringAsFixed(0)} mi'
-        : '${m.round()} m';
+    const double mpm = 1609.344;   // meters per mile
+    const double mft = 0.3048;     // meters per foot
+    String fmt(double m) {
+      if (m >= mpm) {
+        final mi = m / mpm;
+        return '${mi < 10 ? mi.toStringAsFixed(1) : mi.toStringAsFixed(0)} mi';
+      }
+      return '${(m / mft).round()} ft';
+    }
 
     double? dist;
     IconData icon;

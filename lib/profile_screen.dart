@@ -1,7 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'app_state.dart';
 import 'local_db.dart';
+
+// ── Paleta Dark Premium (alineada con travel_screen y notification handler) ─────
+const Color _pgBg       = Color(0xFF1E1E26);
+const Color _pgSurface  = Color(0xFF2A2A34);
+const Color _pgAccent   = Color(0xFF6366F1);
+const Color _pgGreen    = Color(0xFF6EE7B7);
+const Color _pgRed      = Color(0xFFEF4444);
+const Color _pgAmber    = Color(0xFFF59E0B);
+const Color _pgTextMain = Colors.white;
+const Color _pgTextMuted = Color(0xFFA0A0AB);
+const Color _pgLine     = Color(0xFF3F3F46);
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -11,12 +23,11 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _nameController  = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   String? _avatarUrl;
   bool _loading = false;
-  // --- Nuevo: vehículos ---
-  Map<String, Map<String, dynamic>> _vehicles = {}; // key: plate, value: data
+  Map<String, Map<String, dynamic>> _vehicles = {};
   String? _activePlate;
 
   @override
@@ -32,12 +43,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
+  // ── Lógica ────────────────────────────────────────────────────────────────────
+
   void _signOut() async {
     await FirebaseAuth.instance.signOut();
     if (mounted) {
-      // No navegamos manualmente aquí: el StreamBuilder en main.dart detectará el cambio
-      // de estado de autenticación y redirigirá a la pantalla de login.
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sesión cerrada.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You have been signed out.')),
+      );
     }
   }
 
@@ -46,29 +59,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final info = await getCurrentDriverInfo();
       if (info != null && mounted) {
-        _nameController.text = (info['name'] ?? info['displayName'] ?? '') as String;
+        _nameController.text  = (info['name'] ?? info['displayName'] ?? '') as String;
         _phoneController.text = (info['fullPhone'] ?? '') as String;
-        // imageUrl viene desde Firebase (campo imageUrl). Guardamos para el header.
         final dynamic img = info['imageUrl'] ?? info['photoURL'] ?? info['avatar'];
         _avatarUrl = (img is String && img.isNotEmpty) ? img : null;
-        // Parse vehículos
-        final dynamic vehicles = info['vehicles'];
-        if (vehicles is Map) {
-          _vehicles = vehicles.map<String, Map<String, dynamic>>((key, value) {
-            final mapValue = (value is Map<String, dynamic>) ? value : <String, dynamic>{};
-            return MapEntry(key.toString(), mapValue);
-          });
-          // Encontrar activo
-          _activePlate = _vehicles.entries
-              .firstWhere((e) => (e.value['on'] == true), orElse: () => const MapEntry<String, Map<String, dynamic>>('', {}))
-              .key;
-          if (_activePlate != null && _activePlate!.isEmpty) {
-            _activePlate = null;
-          }
-        } else {
-          _vehicles = {};
-          _activePlate = null;
-        }
+        _parseVehicles(info['vehicles']);
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -80,483 +75,469 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (user == null) return;
     setState(() => _loading = true);
     try {
-      // Borrar cache local para forzar consulta a Firestore
-      try {
-        await LocalDb.instance.clearDriver(user.uid);
-      } catch (_) {}
-      // Volver a cargar (ahora hará la consulta a Firestore y guardará en SQLite)
+      try { await LocalDb.instance.clearDriver(user.uid); } catch (_) {}
       final info = await getCurrentDriverInfo();
       if (info != null && mounted) {
-        _nameController.text = (info['name'] ?? info['displayName'] ?? '') as String;
+        _nameController.text  = (info['name'] ?? info['displayName'] ?? '') as String;
         _phoneController.text = (info['fullPhone'] ?? '') as String;
         final dynamic img = info['imageUrl'] ?? info['photoURL'] ?? info['avatar'];
         _avatarUrl = (img is String && img.isNotEmpty) ? img : null;
-        // Parse vehículos
-        final dynamic vehicles = info['vehicles'];
-        if (vehicles is Map) {
-          _vehicles = vehicles.map<String, Map<String, dynamic>>((key, value) {
-            final mapValue = (value is Map<String, dynamic>) ? value : <String, dynamic>{};
-            return MapEntry(key.toString(), mapValue);
-          });
-          _activePlate = _vehicles.entries
-              .firstWhere((e) => (e.value['on'] == true), orElse: () => const MapEntry<String, Map<String, dynamic>>('', {}))
-              .key;
-          if (_activePlate != null && _activePlate!.isEmpty) {
-            _activePlate = null;
-          }
-        } else {
-          _vehicles = {};
-          _activePlate = null;
+        _parseVehicles(info['vehicles']);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile updated from server.')),
+          );
         }
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Datos actualizados desde servidor.')));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _setActiveVehicle(String? plate) async {
-    if (plate == null) return;
+  void _parseVehicles(dynamic raw) {
+    if (raw is Map) {
+      _vehicles = raw.map<String, Map<String, dynamic>>((key, value) {
+        final v = (value is Map<String, dynamic>) ? value : <String, dynamic>{};
+        return MapEntry(key.toString(), v);
+      });
+      _activePlate = _vehicles.entries
+          .firstWhere(
+            (e) => e.value['on'] == true,
+            orElse: () => const MapEntry<String, Map<String, dynamic>>('', {}),
+          )
+          .key;
+      if (_activePlate != null && _activePlate!.isEmpty) _activePlate = null;
+    } else {
+      _vehicles   = {};
+      _activePlate = null;
+    }
+  }
+
+  Future<void> _setActiveVehicle(String plate) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
     setState(() => _loading = true);
     try {
-      // Construir nuevo mapa vehicles con flags 'on'
-      final Map<String, dynamic> updatedVehicles = {};
+      // Actualizar flags 'on' en el mapa local
+      final Map<String, dynamic> updated = {};
       for (final entry in _vehicles.entries) {
         final data = Map<String, dynamic>.from(entry.value);
         data['on'] = (entry.key == plate);
-        updatedVehicles[entry.key] = data;
+        updated[entry.key] = data;
       }
-      // Actualizar Firestore
-      await FirebaseFirestore.instance.collection('drivers').doc(user.uid).update({'vehicles': updatedVehicles});
-      // Actualizar estado local y caché
-      _vehicles = updatedVehicles.map<String, Map<String, dynamic>>((k, v) => MapEntry(k, Map<String, dynamic>.from(v as Map)));
+      await FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(user.uid)
+          .update({'vehicles': updated});
+
+      _vehicles    = updated.map<String, Map<String, dynamic>>((k, v) => MapEntry(k, Map<String, dynamic>.from(v as Map)));
       _activePlate = plate;
-      // Guardar driver actualizado en SQLite
+
+      // Actualizar el label del tab de viaje
+      final v = _vehicles[plate];
+      if (v != null) {
+        final model       = v['model']?.toString()         ?? '';
+        final vehiclePlate = v['plate']?.toString()        ?? plate;
+        final parts = [model, vehiclePlate].where((s) => s.isNotEmpty);
+        activeVehicleLabelNotifier.value = parts.isNotEmpty ? parts.join(' · ') : '';
+      }
+
+      // Persistir en caché local
       try {
-        final doc = await FirebaseFirestore.instance.collection('drivers').doc(user.uid).get();
+        final doc  = await FirebaseFirestore.instance.collection('drivers').doc(user.uid).get();
         final data = doc.data() ?? <String, dynamic>{};
-        final result = {
-          'uid': user.uid,
-          'phone': user.phoneNumber,
-          ...data,
-        };
-        await LocalDb.instance.saveDriver(result);
+        await LocalDb.instance.saveDriver({'uid': user.uid, 'phone': user.phoneNumber, ...data});
       } catch (_) {}
+
       if (mounted) {
         setState(() {});
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vehículo activo actualizado.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Active vehicle updated.')),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al actualizar el vehículo.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to update vehicle. Please try again.')),
+        );
       }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  // ── Build ──────────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            // Header con imagen de fondo, acciones y avatar
-            _ProfileHeader(
-              nameController: _nameController,
-              onRefresh: _loading ? null : _refreshFromServer,
-              rating: 4.89, // ejemplo
-              trips: 3104,  // ejemplo
-              years: 2.5,   // ejemplo
-              avatarUrl: _avatarUrl, // sin imagen por defecto
-            ),
-
-            // Contenido scrollable del formulario
-            Expanded(
-              child: SingleChildScrollView(
-                // Aumentar padding inferior para no chocar con el botón fijo abajo
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Información',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+      backgroundColor: _pgBg,
+      body: Column(
+        children: [
+          _buildHeader(),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator(color: _pgAccent, strokeWidth: 2))
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 100),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _sectionLabel('Personal Info'),
+                        const SizedBox(height: 10),
+                        _buildInfoCard(),
+                        const SizedBox(height: 28),
+                        _sectionLabel('My Vehicle'),
+                        const SizedBox(height: 10),
+                        ..._buildVehicleCards(),
+                        if (_vehicles.isEmpty) _buildEmptyVehicles(),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _nameController,
-                      enabled: false,
-                      decoration: InputDecoration(
-                        labelText: 'Nombre',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        prefixIcon: const Icon(Icons.person),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _phoneController,
-                      enabled: false,
-                      keyboardType: TextInputType.phone,
-                      decoration: InputDecoration(
-                        labelText: 'Teléfono',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        prefixIcon: const Icon(Icons.phone),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    // Select para que se seleccione el Veihículo del driver
-                    // --- Nuevo Dropdown de vehículos ---
-                    DropdownButtonFormField<String>(
-                      value: _activePlate != null && _vehicles.containsKey(_activePlate) ? _activePlate : null,
-                      isExpanded: true,
-                      items: _vehicles.entries.map((e) {
-                        final v = e.value;
-                        final brand = (v['brand'] ?? '') as String;
-                        final model = (v['model'] ?? '') as String;
-                        final year = (v['anio'] ?? v['year'] ?? '');
-                        final color = (v['color'] ?? '') as String;
-                        final plate = (v['plate'] ?? e.key) as String;
-                        final label = [brand, model].where((s) => s.toString().isNotEmpty).join(' ');
-                        final subtitle = [year, plate, color].where((s) => s.toString().isNotEmpty).join(' • ');
-                        return DropdownMenuItem<String>(
-                          value: e.key,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(label.isNotEmpty ? label : plate, style: const TextStyle(fontWeight: FontWeight.w600)),
-                              if (subtitle.isNotEmpty)
-                                Text(subtitle, style: const TextStyle(color: Colors.black54, fontSize: 12)),
-                            ],
-                          ),
-                        );
-                      }).toList(),
-                      selectedItemBuilder: (context) {
-                        return _vehicles.entries.map((e) {
-                          final v = e.value;
-                          final brand = (v['brand'] ?? '') as String;
-                          final model = (v['model'] ?? '') as String;
-                          final plate = (v['plate'] ?? e.key) as String;
-                          final subtitle = [(v['year'] ?? v['anio'] ?? ''), plate, (v['color'] ?? '')]
-                              .where((s) => s.toString().isNotEmpty)
-                              .join(' • ');
-                          final label = [brand, model].where((s) => s.toString().isNotEmpty).join(' ');
-                          return Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              label.isNotEmpty ? label +' ' +subtitle : plate,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 12),
-                            ),
-                          );
-                        }).toList();
-                      },
-                      onChanged: _loading || _vehicles.isEmpty ? null : (val) => _setActiveVehicle(val),
-                      decoration: InputDecoration(
-                        labelText: 'Vehículo activo',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                        prefixIcon: const Icon(Icons.directions_car),
-                        contentPadding: const EdgeInsets.symmetric(vertical: 19, horizontal: 12),
-                      ),
-                      hint: const Text('Selecciona el vehículo a usar'),
-                    ),
-                    const SizedBox(height: 8),
-
-                    // Puedes agregar más secciones aquí (auto, placas, etc.)
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
+                  ),
+          ),
+        ],
       ),
-      // Botón inferior como bottomNavigationBar para evitar overflow
       bottomNavigationBar: SafeArea(
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.logout),
-              label: const Text('Cerrar sesión'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red,
-                foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(48),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+          child: GestureDetector(
+            onTap: _signOut,
+            child: Container(
+              height: 50,
+              decoration: BoxDecoration(
+                color: _pgSurface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: _pgRed.withOpacity(0.4), width: 1),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.logout_rounded, color: _pgRed, size: 18),
+                  SizedBox(width: 8),
+                  Text(
+                    'Sign Out',
+                    style: TextStyle(color: _pgRed, fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.3),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── Header ─────────────────────────────────────────────────────────────────────
+
+  Widget _buildHeader() {
+    final topPad  = MediaQuery.of(context).padding.top;
+    final name    = _nameController.text.trim();
+    final phone   = _phoneController.text.trim();
+
+    // Avatar con iniciales y color determinístico
+    final initials = name.isNotEmpty
+        ? name.split(RegExp(r'\s+')).map((p) => p.isNotEmpty ? p[0] : '').take(2).join().toUpperCase()
+        : '?';
+    final hue      = name.isNotEmpty ? (name.codeUnits.fold(0, (a, b) => a + b) % 360).toDouble() : 220.0;
+    final avatarBg = HSVColor.fromAHSV(1.0, hue, 0.45, 0.60).toColor();
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(20, topPad + 14, 20, 24),
+      decoration: const BoxDecoration(
+        color: _pgSurface,
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
+        boxShadow: [BoxShadow(color: Colors.black38, blurRadius: 18, offset: Offset(0, 5))],
+      ),
+      child: Column(
+        children: [
+          // Barra superior: título + botón refresh
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Text(
+                'Profile',
+                style: TextStyle(color: _pgTextMain, fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+              const Spacer(),
+              GestureDetector(
+                onTap: _loading ? null : _refreshFromServer,
+                child: Container(
+                  width: 36, height: 36,
+                  decoration: BoxDecoration(color: _pgBg, shape: BoxShape.circle),
+                  child: _loading
+                      ? const Padding(
+                          padding: EdgeInsets.all(10),
+                          child: CircularProgressIndicator(strokeWidth: 2, color: _pgAccent),
+                        )
+                      : const Icon(Icons.refresh_rounded, color: _pgTextMuted, size: 18),
                 ),
               ),
-              onPressed: _signOut,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ------------------------
-// Header personalizado
-// ------------------------
-class _ProfileHeader extends StatelessWidget {
-  const _ProfileHeader({
-    required this.nameController,
-    required this.onRefresh,
-    required this.rating,
-    required this.trips,
-    required this.years,
-    required this.avatarUrl,
-  });
-
-  final TextEditingController nameController;
-  final VoidCallback? onRefresh;
-  final double rating;
-  final int trips;
-  final double years;
-  final String? avatarUrl; // puede ser nulo
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Stack(
-      children: [
-        // Imagen de fondo
-        SizedBox(
-          height: 240,
-          width: double.infinity,
-          child: ClipRRect(
-            borderRadius: const BorderRadius.only(
-              bottomLeft: Radius.circular(24),
-              bottomRight: Radius.circular(24),
-            ),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                Image.asset('assets/fondo5.jpeg', fit: BoxFit.cover),
-                // Degradado para mejor legibilidad
-                Container(
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.transparent,
-                        Color.fromARGB(160, 0, 0, 0),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-
-        // Barra superior: hora/acciones simuladas -> botón refrescar
-        Positioned(
-          top: MediaQuery.of(context).padding.top + 8,
-          right: 12,
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: 'Refrescar desde servidor',
-                onPressed: onRefresh,
-                icon: Icon(Icons.refresh, color: Colors.blue[700], size: 50),
-
-              )
             ],
           ),
-        ),
+          const SizedBox(height: 22),
 
-        // Avatar centrado
-        Positioned.fill(
-          child: Align(
-            alignment: const Alignment(0, 0.35),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: BoxDecoration(
-                    color: const Color.fromRGBO(255, 255, 255, 0.9),
-                    shape: BoxShape.circle,
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Colors.black26,
-                        blurRadius: 10,
-                        offset: Offset(0, 4),
+          // Avatar con ring de acento
+          Stack(
+            alignment: Alignment.center,
+            children: [
+              Container(
+                width: 88, height: 88,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: _pgAccent, width: 2.5),
+                ),
+              ),
+              CircleAvatar(
+                radius: 40,
+                backgroundImage: _avatarUrl != null ? NetworkImage(_avatarUrl!) : null,
+                backgroundColor: avatarBg,
+                child: _avatarUrl == null
+                    ? Text(
+                        initials,
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w700, color: Colors.white),
                       )
-                    ],
-                  ),
-                  child: CircleAvatar(
-                    radius: 42,
-                    backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl!) : null,
-                    backgroundColor: Colors.grey[200],
-                    // Si no hay imagen, mostramos iniciales o icono
-                    child: avatarUrl == null
-                        ? (() {
-                            final name = nameController.text.trim();
-                            if (name.isNotEmpty) {
-                              final parts = name.split(RegExp(r'\s+'));
-                              final initials = parts.map((p) => p.isNotEmpty ? p[0] : '').take(2).join().toUpperCase();
-                              return Text(initials, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: Colors.black87));
-                            }
-                            return const Icon(Icons.person, size: 28, color: Colors.black45);
-                          })()
-                        : null,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // Nombre
-                Text(
-                  nameController.text.isNotEmpty ? nameController.text : 'Driver',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    shadows: const [
-                      Shadow(color: Colors.black38, blurRadius: 6),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                // Chip de rating
-                _RatingChip(rating: rating),
+                    : null,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // Nombre del driver
+          Text(
+            name.isNotEmpty ? name : 'Driver',
+            style: const TextStyle(color: _pgTextMain, fontSize: 20, fontWeight: FontWeight.w700),
+            textAlign: TextAlign.center,
+          ),
+
+          // Teléfono
+          if (phone.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(phone, style: const TextStyle(color: _pgTextMuted, fontSize: 13)),
+          ],
+          const SizedBox(height: 20),
+
+          // Fila de estadísticas
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
+            decoration: BoxDecoration(
+              color: _pgBg,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                _statCell('4.89', 'Rating',  Icons.star_rounded,     _pgAmber),
+                _statDivider(),
+                _statCell('3,104', 'Trips',  Icons.route_rounded,    _pgAccent),
+                _statDivider(),
+                _statCell('2.5 yrs', 'Active', Icons.verified_rounded, _pgGreen),
               ],
             ),
           ),
-        ),
-
-        // Tarjeta de métricas (Trips / Years)
-        Positioned(
-          bottom: 0,
-          left: 16,
-          right: 16,
-          child: _StatsCard(trips: trips, years: years),
-        ),
-      ],
-    );
-  }
-}
-
-// Chip de rating con ícono y estrella
-class _RatingChip extends StatelessWidget {
-  const _RatingChip({required this.rating});
-
-  final double rating;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3)),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.person, size: 16, color: Colors.green),
-          const SizedBox(width: 6),
-          Text(
-            rating.toStringAsFixed(2),
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(width: 4),
-          const Icon(Icons.star, size: 16, color: Colors.amber),
         ],
       ),
     );
   }
-}
 
-// Tarjeta de métricas inferior
-class _StatsCard extends StatelessWidget {
-  const _StatsCard({required this.trips, required this.years});
-
-  final int trips;
-  final double years;
-
-  @override
-  Widget build(BuildContext context) {
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 6)),
-        ],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          _Metric(
-            title: 'Trips',
-            value: trips.toString(),
-          ),
-          Container(
-            width: 1,
-            height: 32,
-            color: Colors.grey[300],
-          ),
-          _Metric(
-            title: 'Years',
-            value: years.toString(),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Metric extends StatelessWidget {
-  const _Metric({required this.title, required this.value});
-
-  final String title;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+  Widget _statCell(String value, String label, IconData icon, Color color) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          value,
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.bold,
+        Icon(icon, size: 15, color: color),
+        const SizedBox(height: 5),
+        Text(value, style: const TextStyle(color: _pgTextMain, fontSize: 15, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 2),
+        Text(label, style: const TextStyle(color: _pgTextMuted, fontSize: 10, letterSpacing: 0.2)),
+      ],
+    );
+  }
+
+  Widget _statDivider() => Container(width: 1, height: 34, color: _pgLine);
+
+  // ── Sección: etiqueta ──────────────────────────────────────────────────────────
+
+  Widget _sectionLabel(String text) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4),
+      child: Text(
+        text.toUpperCase(),
+        style: const TextStyle(
+          color: _pgTextMuted,
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 1.3,
+        ),
+      ),
+    );
+  }
+
+  // ── Sección: Info personal ─────────────────────────────────────────────────────
+
+  Widget _buildInfoCard() {
+    final name  = _nameController.text.trim();
+    final phone = _phoneController.text.trim();
+    return Container(
+      decoration: BoxDecoration(
+        color: _pgSurface,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        children: [
+          _infoRow(Icons.person_outline_rounded, 'Full Name',  name.isNotEmpty  ? name  : '—', isFirst: true),
+          Divider(color: _pgLine, height: 1, indent: 54),
+          _infoRow(Icons.phone_outlined,          'Phone',     phone.isNotEmpty ? phone : '—'),
+        ],
+      ),
+    );
+  }
+
+  Widget _infoRow(IconData icon, String label, String value, {bool isFirst = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
+      child: Row(
+        children: [
+          Container(
+            width: 34, height: 34,
+            decoration: BoxDecoration(color: _pgBg, borderRadius: BorderRadius.circular(9)),
+            child: Icon(icon, color: _pgAccent, size: 16),
+          ),
+          const SizedBox(width: 14),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(label, style: const TextStyle(color: _pgTextMuted, fontSize: 11)),
+              const SizedBox(height: 2),
+              Text(value, style: const TextStyle(color: _pgTextMain, fontSize: 14, fontWeight: FontWeight.w500)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Sección: Vehículos ─────────────────────────────────────────────────────────
+
+  List<Widget> _buildVehicleCards() {
+    return _vehicles.entries.map((entry) {
+      final v        = entry.value;
+      final isActive = entry.key == _activePlate;
+      final brand    = (v['brand'] ?? '') as String;
+      final model    = (v['model'] ?? '') as String;
+      final year     = (v['anio'] ?? v['year'] ?? '').toString();
+      final color    = (v['color'] ?? '') as String;
+      final plate    = (v['plate'] ?? entry.key) as String;
+      final title    = [brand, model].where((s) => s.isNotEmpty).join(' ');
+      final subtitle = [year, color].where((s) => s.isNotEmpty).join(' · ');
+
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: GestureDetector(
+          onTap: (_loading || isActive) ? null : () => _setActiveVehicle(entry.key),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 220),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(
+              color: isActive ? _pgAccent.withOpacity(0.08) : _pgSurface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isActive ? _pgAccent.withOpacity(0.55) : _pgLine.withOpacity(0.5),
+                width: isActive ? 1.5 : 1,
+              ),
+            ),
+            child: Row(
+              children: [
+                // Icono de taxi
+                Container(
+                  width: 42, height: 42,
+                  decoration: BoxDecoration(
+                    color: isActive ? _pgAccent.withOpacity(0.15) : _pgBg,
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                  child: Icon(
+                    Icons.local_taxi_rounded,
+                    color: isActive ? _pgAccent : _pgTextMuted,
+                    size: 21,
+                  ),
+                ),
+                const SizedBox(width: 14),
+
+                // Texto del vehículo
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title.isNotEmpty ? title : plate,
+                        style: TextStyle(
+                          color: isActive ? _pgTextMain : _pgTextMuted,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (subtitle.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(subtitle, style: const TextStyle(color: _pgTextMuted, fontSize: 12)),
+                      ],
+                      const SizedBox(height: 6),
+                      // Badge de placa
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: _pgBg,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          plate,
+                          style: TextStyle(
+                            color: isActive ? _pgAccent : _pgTextMuted,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+
+                // Indicador activo / inactivo
+                if (isActive)
+                  const Icon(Icons.check_circle_rounded, color: _pgAccent, size: 22)
+                else
+                  Container(
+                    width: 20, height: 20,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: _pgLine, width: 1.5),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          title,
-          style: theme.textTheme.bodyMedium?.copyWith(color: Colors.grey[700]),
-        ),
-      ],
+      );
+    }).toList();
+  }
+
+  Widget _buildEmptyVehicles() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: _pgSurface, borderRadius: BorderRadius.circular(16)),
+      child: const Row(
+        children: [
+          Icon(Icons.directions_car_outlined, color: _pgTextMuted, size: 20),
+          SizedBox(width: 12),
+          Text('No vehicles registered', style: TextStyle(color: _pgTextMuted, fontSize: 14)),
+        ],
+      ),
     );
   }
 }
 
-
+// ── getCurrentDriverInfo ──────────────────────────────────────────────────────────
 
 Future<Map<String, dynamic>?> getCurrentDriverInfo() async {
   final user = FirebaseAuth.instance.currentUser;
@@ -566,37 +547,30 @@ Future<Map<String, dynamic>?> getCurrentDriverInfo() async {
   try {
     final cached = await LocalDb.instance.getDriver(user.uid);
     if (cached != null) {
-      // Aseguramos que uid y phone estén presentes
       return {
-        'uid': user.uid,
-        'phone': user.phoneNumber,
+        'uid':      user.uid,
+        'phone':    user.phoneNumber,
         'vehicles': cached['vehicles'],
         ...cached,
       };
     }
   } catch (e) {
-    // Ignorar error de caché y proceder a consultar Firestore
+    // Ignorar error de caché y proceder a Firestore
   }
 
-  // Si no hay caché, consultar Firestore y guardar el resultado en SQLite
+  // Si no hay caché, consultar Firestore y guardar en SQLite
   try {
-    final doc = await FirebaseFirestore.instance.collection('drivers').doc(user.uid).get();
+    final doc  = await FirebaseFirestore.instance.collection('drivers').doc(user.uid).get();
     final data = doc.data() ?? <String, dynamic>{};
     final result = {
-      'uid': user.uid,
-      'phone': user.phoneNumber,
+      'uid':      user.uid,
+      'phone':    user.phoneNumber,
       'vehicles': data['vehicles'],
       ...data,
     };
-    // Guardar en caché local (no bloqueante)
-    try {
-      await LocalDb.instance.saveDriver(result);
-    } catch (e) {
-      // Si falla el guardado local, no impedimos devolver la información
-    }
+    try { await LocalDb.instance.saveDriver(result); } catch (e) {}
     return result;
   } catch (e) {
-    // Manejo mínimo: devolver null en error (puedes cambiar para lanzar)
     return null;
   }
 }

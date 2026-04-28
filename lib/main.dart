@@ -14,16 +14,9 @@ import 'welcome_screen.dart';
 import 'travel_notification_handler.dart';
 
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  // La Cloud Function ya guarda el mensaje en background_messages con acceso de admin.
+  // No se necesita escribir a Firestore desde aquí.
   await Firebase.initializeApp();
-  try {
-    final data = message.data;
-    await FirebaseFirestore.instance.collection('background_messages').add({
-      'data': data,
-      'receivedAt': FieldValue.serverTimestamp(),
-    });
-  } catch (e) {
-    // Ignorar errores en background
-  }
 }
 
 bool travelDialogActive = false;

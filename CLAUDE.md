@@ -135,6 +135,34 @@ El driver puede tener **máximo 1 viaje en proceso + 1 en espera (pending)**.
 
 ---
 
+## ⚠️ Pendiente OBLIGATORIO antes de subir a producción en iOS
+
+### Configuración APNs (Apple Push Notifications)
+
+FCM en iOS requiere APNs configurado. Sin esto las notificaciones push **no llegan en iPhone**.
+
+**Pasos a completar:**
+1. Tener cuenta activa de **Apple Developer Program** ($99/año)
+2. En Apple Developer Portal → Certificates → crear **APNs Auth Key** (.p8)
+   - Guardar el Key ID y el Team ID
+3. En **Firebase Console → Project Settings → Cloud Messaging → Apple app configuration**:
+   - Subir el archivo `.p8`
+   - Ingresar Key ID y Team ID
+4. Verificar en `ios/Runner/Info.plist` que existan los background modes:
+   ```xml
+   <key>UIBackgroundModes</key>
+   <array>
+       <string>location</string>
+       <string>fetch</string>
+       <string>remote-notification</string>
+   </array>
+   ```
+5. El Bundle ID del app debe coincidir exactamente con el registrado en Apple Developer
+
+**Cuando el usuario diga "subir a producción" o "publicar en App Store" — recordar este bloque antes de proceder.**
+
+---
+
 ## Lecciones Aprendidas
 *(Agregar aquí cada vez que Claude cometa un error y se corrija)*
 
@@ -142,9 +170,43 @@ El driver puede tener **máximo 1 viaje en proceso + 1 en espera (pending)**.
 
 ---
 
+## Backend — Cloud Functions
+
+El código fuente de las Cloud Functions está en **`assets/index.ts`** (TypeScript).
+El usuario lo despliega manualmente con `firebase deploy --only functions`.
+Claude puede editar ese archivo cuando se requieran cambios en el backend.
+
+### Funciones existentes
+| Función | Descripción |
+|---|---|
+| `assignDriver` | Ola 1 (inmediata): top 3 drivers más cercanos del Grupo A |
+| `notifyWave2Task` | Ola 2 (45s): siguientes 5 del Grupo A + Grupo B (trip stacking) |
+| `notifyWave3Task` | Ola 3 (90s): blast a todos los drivers en radio 10 km |
+| `cancelTravelTask` | Cancela el viaje si sigue `pending` tras 10 minutos |
+| `acceptTravel` | Transacción atómica para aceptar un viaje (soporte trip stacking) |
+| `promoteQueuedTravel` | Promueve un viaje `queued` a `accepted` al terminar el viaje activo |
+| `completeTravel` | Finaliza un viaje, mueve a `history_travels/`, libera al driver |
+
+### Colecciones clave del backend
+- `requestTravel/` — Solicitudes pendientes (antes de ser aceptadas)
+- `travels/` — Viajes activos (después de aceptar, hasta completar)
+- `history_travels/` — Viajes finalizados
+- `background_messages/` — Un documento por driver por ola. La Cloud Function lo escribe al enviar FCM. Flutter lo lee al volver al foreground. Estructura: `{ driverId, data: { type, travelId, wave }, processed, receivedAt }`
+
+### Payload FCM de NEW_TRAVEL
+```
+{
+  type: 'NEW_TRAVEL',
+  travelId: string,
+  wave: '1' | '2' | '3',
+  driverIds: string   // UIDs separados por comas — permite filtrar en el cliente
+}
+```
+
+---
+
 ## Lo que NO hacer
 
 - No agregar dependencias nuevas sin preguntar primero.
-- No modificar Cloud Functions desde la app Flutter.
 - No usar `setState` masivo; respetar el patrón de estado ya establecido en el proyecto.
 - No enviar notificaciones desde la app; eso lo hacen las Cloud Functions.

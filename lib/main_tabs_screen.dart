@@ -1,9 +1,13 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'travel_screen.dart';
 import 'profile_screen.dart';
 import 'app_state.dart';
+import 'notification_center.dart';
+import 'notification_guard.dart';
+import 'travel_notification_handler.dart';
 
 const Color _onTripAccent = Colors.orange; // color principal cuando está en viaje
 
@@ -16,14 +20,53 @@ class MainTabsScreen extends StatefulWidget {
   State<MainTabsScreen> createState() => _MainTabsScreenState();
 }
 
-class _MainTabsScreenState extends State<MainTabsScreen> {
+class _MainTabsScreenState extends State<MainTabsScreen> with WidgetsBindingObserver {
   bool _restored = false; // evita loops de restauración
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     tabsIndexNotifier.value = widget.initialTabIndex;
     _restoreActiveTravelIfAny();
+    _refreshFcmToken();
+  }
+
+  /// Refresca el FCM token en Firestore cada vez que la app inicia.
+  /// Esto es crítico después de reinstalar la app, ya que Firebase genera un token nuevo.
+  Future<void> _refreshFcmToken() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        await FirebaseFirestore.instance
+            .collection('drivers')
+            .doc(user.uid)
+            .update({'fcmToken': token});
+        debugPrint('[FCM] Token actualizado: $token');
+      }
+    } catch (e) {
+      debugPrint('[FCM] Error actualizando token: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// Se dispara cuando la app vuelve al foreground desde background.
+  /// Verifica si hay una solicitud de viaje pendiente que no fue mostrada.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // 1. Procesar notificaciones que quedaron en la cola en memoria
+      tryHandlePendingNotifications();
+      // 2. Consultar Firestore por solicitudes pendientes asignadas a este driver
+      _checkForPendingTripRequest();
+    }
   }
 
   // ── Paleta Dark Premium ────────────────────────────────────────────────────
@@ -82,6 +125,74 @@ class _MainTabsScreenState extends State<MainTabsScreen> {
         );
       },
     );
+  }
+
+  /// Al volver al foreground, busca en `background_messages` si llegó alguna
+  /// notificación NEW_TRAVEL mientras la app estaba en background que el driver
+  /// no haya visto todavía (processed == false). Si encuentra una, levanta el popup.
+  ///
+  /// La Cloud Function incluye en el payload FCM un campo `driverIds` (array de UIDs)
+  /// con los drivers a los que se les envió la solicitud. Usamos arrayContains para
+  /// filtrar solo mensajes dirigidos a este driver.
+  Future<void> _checkForPendingTripRequest() async {
+    // Pausa breve para que la UI termine de renderizarse
+    await Future.delayed(const Duration(milliseconds: 700));
+    if (!mounted) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    if (travelDialogActive) return;
+
+    try {
+      final driverId = user.uid;
+      final cutoff = Timestamp.fromDate(DateTime.now().subtract(const Duration(minutes: 10)));
+
+      // Dos filtros de igualdad no requieren índice compuesto.
+      // Ordenamiento y filtro de tiempo se aplican en código.
+      final q = await FirebaseFirestore.instance
+          .collection('background_messages')
+          .where('driverId', isEqualTo: driverId)
+          .where('processed', isEqualTo: false)
+          .limit(10)
+          .get();
+
+      // Ordenar por receivedAt descendente en código (evita índice compuesto)
+      final sorted = q.docs.toList()
+        ..sort((a, b) {
+          final aTs = a.data()['receivedAt'];
+          final bTs = b.data()['receivedAt'];
+          if (aTs is Timestamp && bTs is Timestamp) return bTs.compareTo(aTs);
+          return 0;
+        });
+
+      for (final doc in sorted) {
+        // Ignorar mensajes de más de 10 minutos (filtro en código, no en query)
+        final receivedAt = doc.data()['receivedAt'];
+        if (receivedAt is Timestamp && receivedAt.toDate().isBefore(cutoff.toDate())) continue;
+
+        // Marcar como procesado de inmediato para evitar doble procesamiento
+        await doc.reference.update({'processed': true});
+
+        final raw = doc.data()['data'];
+        if (raw is! Map) continue;
+
+        final type     = raw['type']?.toString() ?? '';
+        final travelId = (raw['travelId'] ?? raw['travelID'] ?? raw['travelid'])?.toString() ?? '';
+
+        if (type != 'NEW_TRAVEL' || travelId.isEmpty) continue;
+
+        // NotificationGuard previene duplicados si el driver también tapea la notificación
+        if (!NotificationGuard.tryAdd(travelId)) continue;
+
+        final freshCtx = navigatorKey.currentContext;
+        if (freshCtx == null || !freshCtx.mounted) return;
+
+        showTravelRequestDialog(freshCtx, travelId, null);
+        return; // mostrar de a uno por vez
+      }
+    } catch (e) {
+      debugPrint('[checkPendingTrip] Error: $e');
+    }
   }
 
   Future<void> _restoreActiveTravelIfAny() async {

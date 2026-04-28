@@ -220,9 +220,19 @@ export const assignDriver = functions
       if (wave1Tokens.length > 0) {
         await sendPushNotification(
           wave1Tokens,
-          { type: 'NEW_TRAVEL', travelId, wave: '1' },
+          { type: 'NEW_TRAVEL', travelId, wave: '1', driverIds: wave1DriverIds.join(',') },
           { title: 'Nuevo viaje disponible', body: 'Tienes una nueva solicitud de viaje para aceptar.' }
         );
+        // Un documento por driver para que cada uno tenga su propio flag processed independiente
+        const ts1 = admin.firestore.Timestamp.now();
+        await Promise.all(wave1DriverIds.map(driverId =>
+          db.collection('background_messages').add({
+            data: { type: 'NEW_TRAVEL', travelId, wave: '1' },
+            driverId,
+            processed: false,
+            receivedAt: ts1,
+          })
+        ));
         console.log(`assignDriver: Ola 1 enviada a ${wave1Tokens.length} conductores (${wave1Source})`);
       } else {
         console.log('assignDriver: Ola 1 sin conductores elegibles');
@@ -353,9 +363,19 @@ export const notifyWave2Task = functions
       if (wave2Tokens.length > 0) {
         await sendPushNotification(
           wave2Tokens,
-          { type: 'NEW_TRAVEL', travelId, wave: '2' },
+          { type: 'NEW_TRAVEL', travelId, wave: '2', driverIds: wave2DriverIds.join(',') },
           { title: 'Nuevo viaje disponible', body: 'Solicitud de viaje aún disponible.' }
         );
+        // Un documento por driver para que cada uno tenga su propio flag processed independiente
+        const ts2 = admin.firestore.Timestamp.now();
+        await Promise.all(wave2DriverIds.map(driverId =>
+          db.collection('background_messages').add({
+            data: { type: 'NEW_TRAVEL', travelId, wave: '2' },
+            driverId,
+            processed: false,
+            receivedAt: ts2,
+          })
+        ));
       }
 
       await travelRef.update({
@@ -433,9 +453,19 @@ export const notifyWave3Task = functions
       if (blastTokens.length > 0) {
         await sendPushNotification(
           blastTokens,
-          { type: 'NEW_TRAVEL', travelId, wave: '3' },
+          { type: 'NEW_TRAVEL', travelId, wave: '3', driverIds: blastDriverIds.join(',') },
           { title: 'Nuevo viaje disponible', body: 'Solicitud de viaje disponible en tu zona.' }
         );
+        // Un documento por driver para que cada uno tenga su propio flag processed independiente
+        const ts3 = admin.firestore.Timestamp.now();
+        await Promise.all(blastDriverIds.map(driverId =>
+          db.collection('background_messages').add({
+            data: { type: 'NEW_TRAVEL', travelId, wave: '3' },
+            driverId,
+            processed: false,
+            receivedAt: ts3,
+          })
+        ));
       }
 
       await travelRef.update({
@@ -451,6 +481,19 @@ export const notifyWave3Task = functions
       res.status(500).send(e.message);
     }
   });
+
+// ---------------------------------------------------------------------------
+// Helper: elimina todos los background_messages de un travelId
+// ---------------------------------------------------------------------------
+
+async function deleteBackgroundMessages(travelId: string): Promise<void> {
+  const snap = await db.collection('background_messages')
+    .where('data.travelId', '==', travelId)
+    .get();
+  if (snap.empty) return;
+  await Promise.all(snap.docs.map(doc => doc.ref.delete()));
+  console.log(`deleteBackgroundMessages: eliminados ${snap.docs.length} docs para travelId=${travelId}`);
+}
 
 // ---------------------------------------------------------------------------
 // cancelTravelTask — Cancela el viaje si sigue pendiente tras el tiempo límite
@@ -473,6 +516,9 @@ export const cancelTravelTask = functions
       } else {
         console.log(`cancelTravelTask: viaje ${travelId} ya no está pending (${data?.viaje_status}), no-op`);
       }
+
+      // Limpiar background_messages independientemente del status
+      await deleteBackgroundMessages(travelId);
 
       res.status(200).send('OK');
     } catch (e: any) {
@@ -562,6 +608,10 @@ export const acceptTravel = functions
 
       const mode = queueMode ? 'cola (queued)' : 'aceptado';
       console.log(`acceptTravel: travelId=${travelId} ${mode} por driverId=${driverId}`);
+
+      // Limpiar background_messages — el viaje ya fue tomado, ningún otro driver debe verlo
+      await deleteBackgroundMessages(travelId);
+
       res.status(200).json({ success: true, travelId, driverId, queueMode });
     } catch (e: any) {
       console.error('acceptTravel error:', e);
