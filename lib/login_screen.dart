@@ -4,6 +4,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'app_state.dart';
 import 'otp_screen.dart';
 import 'welcome_screen.dart';
 
@@ -88,11 +89,42 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
       phoneNumber: fullPhone,
       timeout: const Duration(seconds: 60),
       verificationCompleted: (PhoneAuthCredential cred) async {
-        // Auto-verificación en Android — firma SMS detectada automáticamente
+        // Auto-verificación en Android — aplicar el mismo chequeo de conductor.
+        skipAuthNavigation = true;
         try {
           final uc = await FirebaseAuth.instance.signInWithCredential(cred);
-          if (uc.user != null && mounted) await _afterSignIn(uc.user!);
-        } catch (_) {}
+          if (uc.user == null || !mounted) { skipAuthNavigation = false; return; }
+
+          final query = await FirebaseFirestore.instance
+              .collection('drivers')
+              .where('fullPhone', isEqualTo: fullPhone)
+              .limit(1)
+              .get();
+
+          if (query.docs.isEmpty) {
+            await FirebaseAuth.instance.signOut();
+            skipAuthNavigation = false;
+            if (!mounted) return;
+            setState(() {
+              _loading = false;
+              _error = 'No existe ningún conductor con este número. Contacta al administrador.';
+            });
+            return;
+          }
+
+          final fcmToken = await FirebaseMessaging.instance.getToken();
+          if (fcmToken != null) {
+            await query.docs.first.reference.update({'fcmToken': fcmToken});
+          }
+          skipAuthNavigation = false;
+          if (!mounted) return;
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => WelcomeScreen(phoneNumber: uc.user!.phoneNumber ?? '')),
+            (route) => false,
+          );
+        } catch (_) {
+          skipAuthNavigation = false;
+        }
       },
       verificationFailed: (FirebaseAuthException e) {
         if (!mounted) return;
@@ -114,23 +146,6 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
       },
       codeAutoRetrievalTimeout: (_) {},
     );
-  }
-
-  // ── Post sign-in: crear doc del driver + actualizar FCM ───────────────────
-
-  static Future<void> _afterSignIn(User user) async {
-    final driverRef = FirebaseFirestore.instance.collection('drivers').doc(user.uid);
-    final snap = await driverRef.get();
-    if (!snap.exists) {
-      await driverRef.set({
-        'phone': user.phoneNumber,
-        'createdAt': FieldValue.serverTimestamp(),
-        'isOnline': false,
-        'activeTripsCount': 0,
-      });
-    }
-    final fcmToken = await FirebaseMessaging.instance.getToken();
-    if (fcmToken != null) await driverRef.update({'fcmToken': fcmToken});
   }
 
   // ── Mapeo de errores ──────────────────────────────────────────────────────
@@ -284,7 +299,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
         GestureDetector(
           onTap: _pickCountry,
           child: Container(
-            height: 56,
+            height: 61,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
               color: _kCard,
@@ -320,7 +335,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
               counterText: '',
               filled: true,
               fillColor: _kCard,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 17),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
               border: OutlineInputBorder(
                 borderRadius: const BorderRadius.horizontal(right: Radius.circular(12)),
                 borderSide: BorderSide(color: _kDivider, width: 0.5),

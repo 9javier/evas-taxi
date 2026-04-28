@@ -6,6 +6,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'app_state.dart';
 import 'welcome_screen.dart';
 
 class DriverOtpScreen extends StatefulWidget {
@@ -91,6 +92,9 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       return;
     }
     setState(() { _loading = true; _error = ''; });
+    // Bloquear la auto-navegación del listener de authStateChanges mientras
+    // verificamos que el conductor existe en Firestore.
+    skipAuthNavigation = true;
     try {
       final credential = PhoneAuthProvider.credential(
         verificationId: _verificationId,
@@ -100,36 +104,92 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       if (uc.user == null) throw Exception('user null after signIn');
       if (mounted) await _afterSignIn(uc.user!);
     } on FirebaseAuthException catch (e) {
+      skipAuthNavigation = false;
       if (!mounted) return;
       setState(() { _loading = false; _error = _mapError(e.code); });
       for (final c in _boxes) { c.clear(); }
       _nodes[0].requestFocus();
     } catch (_) {
+      skipAuthNavigation = false;
       if (!mounted) return;
       setState(() { _loading = false; _error = 'Error inesperado. Intenta de nuevo'; });
     }
   }
 
-  // ── Post sign-in: crear/actualizar doc del driver ─────────────────────────
+  // ── Post sign-in: verificar que el conductor existe en Firestore ──────────
 
   Future<void> _afterSignIn(User user) async {
-    final driverRef = FirebaseFirestore.instance.collection('drivers').doc(user.uid);
-    final snap = await driverRef.get();
-    if (!snap.exists) {
-      await driverRef.set({
-        'phone': user.phoneNumber,
-        'createdAt': FieldValue.serverTimestamp(),
-        'isOnline': false,
-        'activeTripsCount': 0,
-      });
+    // Buscar el conductor por fullPhone (código de país + número local concatenados).
+    final query = await FirebaseFirestore.instance
+        .collection('drivers')
+        .where('fullPhone', isEqualTo: widget.phoneNumber)
+        .limit(1)
+        .get();
+
+    if (query.docs.isEmpty) {
+      // Número no registrado — cerrar sesión y mostrar aviso.
+      await FirebaseAuth.instance.signOut();
+      if (!mounted) return;
+      setState(() => _loading = false);
+      await _showDriverNotFoundDialog();
+      return;
     }
+
+    // Conductor encontrado — actualizar token FCM y entrar.
     final fcmToken = await FirebaseMessaging.instance.getToken();
-    if (fcmToken != null) await driverRef.update({'fcmToken': fcmToken});
+    if (fcmToken != null) {
+      await query.docs.first.reference.update({'fcmToken': fcmToken});
+    }
+
+    skipAuthNavigation = false;
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => WelcomeScreen(phoneNumber: user.phoneNumber ?? '')),
       (route) => false,
     );
+  }
+
+  Future<void> _showDriverNotFoundDialog() async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _kSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFFFA726), size: 24),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Conductor no encontrado',
+                style: TextStyle(color: _kText, fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'No existe ningún conductor registrado con este número de teléfono.\n\nPor favor usa otro número o contacta al administrador.',
+          style: TextStyle(color: _kHint, fontSize: 13, height: 1.5),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _kAccent,
+              foregroundColor: const Color(0xFF0D0D14),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('OK', style: TextStyle(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    // Resetear flag y regresar a la pantalla de login.
+    skipAuthNavigation = false;
+    if (!mounted) return;
+    Navigator.of(context).pop();
   }
 
   // ── Reenvío de código ─────────────────────────────────────────────────────

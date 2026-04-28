@@ -19,3 +19,8 @@ final ValueNotifier<String> activeVehicleLabelNotifier = ValueNotifier<String>('
 // Señal de cancelación por parte del pasajero: contiene el travelId cancelado.
 // TravelScreen lo escucha para limpiar el viaje y mostrar el modal de aviso.
 final ValueNotifier<String?> passengerCanceledNotifier = ValueNotifier<String?>(null);
+
+// Cuando es true el listener de authStateChanges en main.dart no navega automáticamente.
+// Se activa durante el flujo OTP para evitar que la app vaya a WelcomeScreen antes de
+// verificar que el número de teléfono corresponde a un conductor registrado.
+bool skipAuthNavigation = false;

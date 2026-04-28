@@ -104,6 +104,9 @@ class _RootAppState extends State<RootApp> {
   void initState() {
     super.initState();
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
+      // skipAuthNavigation se activa durante el flujo OTP para que la app
+      // no navegue automáticamente antes de verificar el conductor.
+      if (skipAuthNavigation) return;
       Future<void> attemptNavigate() async {
         for (var i = 0; i < 10; i++) {
           final nav = navigatorKey.currentState;
@@ -156,16 +159,42 @@ class MyApp extends StatelessWidget {
           stream: FirebaseAuth.instance.authStateChanges(),
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Scaffold(
-                backgroundColor: Color(0xFF0D0D14),
-                body: Center(child: CircularProgressIndicator(color: Color(0xFF6366F1))),
-              );
+              return const _SplashScreen();
             }
             final user = snapshot.data;
             if (user == null) return const DriverLoginScreen();
             return WelcomeScreen(phoneNumber: user.phoneNumber ?? '');
           },
         ),
+      ),
+    );
+  }
+}
+
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        fit: StackFit.expand,
+        children: const [
+          Image(
+            image: AssetImage('assets/splash.png'),
+            fit: BoxFit.cover,
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: EdgeInsets.only(bottom: 52),
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 2.5,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
