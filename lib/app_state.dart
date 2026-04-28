@@ -15,3 +15,7 @@ final ValueNotifier<String?> pendingTravelIdNotifier = ValueNotifier<String?>(nu
 // Label del vehículo activo del conductor — se muestra en el tab de viaje.
 // Formato: "MODEL · PLATE" (ej. "ACCORD · XYZ")
 final ValueNotifier<String> activeVehicleLabelNotifier = ValueNotifier<String>('');
+
+// Señal de cancelación por parte del pasajero: contiene el travelId cancelado.
+// TravelScreen lo escucha para limpiar el viaje y mostrar el modal de aviso.
+final ValueNotifier<String?> passengerCanceledNotifier = ValueNotifier<String?>(null);

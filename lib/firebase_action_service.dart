@@ -87,6 +87,22 @@ class FirebaseActionService {
       return false;
     }
   }
+  /// Llama al endpoint Cloud Function para cancelar un viaje que aún no inició (status != in_progress).
+  /// [flagIsPassenger] = true indica cancelación por parte del pasajero.
+  static Future<bool> cancellOperationTravelTask(String travelId, {bool flagIsPassenger = false}) async {
+    if (travelId.isEmpty) return false;
+    try {
+      final resp = await http
+          .post(Uri.parse(Env.cancellOperationTravelTaskUrl),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({'travelId': travelId, 'flagIsPassenger': flagIsPassenger}))
+          .timeout(const Duration(seconds: 8));
+      return resp.statusCode == 200;
+    } catch (e) {
+      return false;
+    }
+  }
+
   static Future<bool> updateTravelStatus(String travelId, String status) async {
     if (travelId.isEmpty || status.isEmpty) return false;
     try {

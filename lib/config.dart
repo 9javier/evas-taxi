@@ -13,6 +13,8 @@ class Env {
   static const String updateTravelStatusUrl = 'https://us-central1-taxiusa-atlanta.cloudfunctions.net/updateTravelStatus';
   // URL del Cloud Function que promueve el viaje en cola a activo al terminar el 1er viaje
   static const String promoteQueuedTravelUrl = 'https://us-central1-taxiusa-atlanta.cloudfunctions.net/promoteQueuedTravel';
+  // URL del Cloud Function que cancela un viaje activo (antes de in_progress)
+  static const String cancellOperationTravelTaskUrl = 'https://us-central1-taxiusa-atlanta.cloudfunctions.net/cancellOperationTravelTask';
 }
 
 class Config {

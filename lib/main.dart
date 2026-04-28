@@ -8,6 +8,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import 'app_state.dart';
 import 'notification_center.dart';
 import 'notification_guard.dart';
 import 'welcome_screen.dart';
@@ -68,6 +69,10 @@ Future<void> main() async {
       } else {
         addPendingNotification(travelId, null);
       }
+    } else if (type == 'CANCELED_PASSENGER') {
+      final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
+      playAlertSound();
+      passengerCanceledNotifier.value = travelId;
     }
   });
 
@@ -82,6 +87,10 @@ Future<void> main() async {
       } else {
         addPendingNotification(travelId, null);
       }
+    } else if (type == 'CANCELED_PASSENGER') {
+      final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
+      playAlertSound();
+      passengerCanceledNotifier.value = travelId;
     }
   });
 

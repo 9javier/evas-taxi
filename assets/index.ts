@@ -37,7 +37,7 @@ interface DriverDoc {
 interface TravelDoc {
   origin: LatLng;
   destino: LatLng;
-  viaje_status: 'pending' | 'queued' | 'accepted' | 'driver_near' | 'driver_arrived' | 'in_progress' | 'completed' | 'canceled';
+  viaje_status: 'pending' | 'queued' | 'accepted' | 'driver_near' | 'driver_arrived' | 'in_progress' | 'completed' | 'canceled' | 'canceled_passenger';
   userId: string;
   driverId?: string;
   wave1DriverIds?: string[];
@@ -59,7 +59,8 @@ const WAVE1_SIZE = 3;          // conductores en ola 1 (top Group A)
 const WAVE2_GROUP_A_SIZE = 5;  // conductores adicionales de Group A en ola 2
 const WAVE1_DELAY_S = 45;      // segundos hasta ola 2
 const WAVE2_DELAY_S = 90;      // segundos hasta ola 3 (blast)
-const AUTO_CANCEL_DELAY_S = 10 * 60; // 10 min sin aceptar → cancelar
+const NO_DRIVER_CANCEL_DELAY_S = 3 * 60; // 3 min sin conductor → cancelar y notificar pasajero
+const AUTO_CANCEL_DELAY_S = 10 * 60;      // 10 min (seguridad) sin aceptar → cancelar
 const BLAST_RADIUS_KM = 10;    // radio máximo para ola 3
 
 // ---------------------------------------------------------------------------
@@ -184,12 +185,27 @@ export const assignDriver = functions
         .where('isOnline', '==', true)
         .get();
 
+      // DEBUG: log total de drivers encontrados con isOnline==true
+      console.log(`assignDriver: total drivers con isOnline=true → ${driversSnap.size}`);
+
+      // DEBUG: si no hay ninguno, loguear TODOS los drivers para ver su estado real
+      if (driversSnap.empty) {
+        const allDrivers = await db.collection('drivers').get();
+        console.log(`assignDriver: total drivers en colección → ${allDrivers.size}`);
+        allDrivers.forEach(doc => {
+          const d = doc.data();
+          console.log(`  driver ${doc.id}: isOnline=${d.isOnline}, activeTripsCount=${d.activeTripsCount}, hasFcmToken=${!!d.fcmToken}`);
+        });
+      }
+
       const groupADocs: Array<{ id: string; data: DriverDoc }> = [];
       const groupBDocs: Array<{ id: string; data: DriverDoc }> = [];
 
       for (const doc of driversSnap.docs) {
         const data = doc.data() as DriverDoc;
         const count = data.activeTripsCount ?? 0;
+        // DEBUG: log cada driver elegible
+        console.log(`  driver ${doc.id}: activeTripsCount=${count}, hasFcmToken=${!!data.fcmToken}, hasLocation=${!!data.location}`);
         if (count >= 2) continue; // sin capacidad
         if (count === 0) groupADocs.push({ id: doc.id, data });
         else groupBDocs.push({ id: doc.id, data });
@@ -221,7 +237,7 @@ export const assignDriver = functions
         await sendPushNotification(
           wave1Tokens,
           { type: 'NEW_TRAVEL', travelId, wave: '1', driverIds: wave1DriverIds.join(',') },
-          { title: 'Nuevo viaje disponible', body: 'Tienes una nueva solicitud de viaje para aceptar.' }
+          { title: 'New ride available', body: 'You have a new ride request to accept.' }
         );
         // Un documento por driver para que cada uno tenga su propio flag processed independiente
         const ts1 = admin.firestore.Timestamp.now();
@@ -251,7 +267,7 @@ export const assignDriver = functions
       // 6. Encolar tareas diferidas para olas 2, 3 y cancelación automática
       try {
         const baseUrl = functionsBaseUrl(REGION);
-        const serviceAccountEmail = `cloud-tasks-invoker@${process.env.GCLOUD_PROJECT}.iam.gserviceaccount.com`;
+        const serviceAccountEmail = `${process.env.GCLOUD_PROJECT}@appspot.gserviceaccount.com`;
 
         await enqueueTask({
           url: `${baseUrl}/notifyWave2Task`,
@@ -270,17 +286,23 @@ export const assignDriver = functions
         console.log(`assignDriver: notifyWave3Task encolada (${WAVE2_DELAY_S}s)`);
 
         await enqueueTask({
+          url: `${baseUrl}/noDriverCancelTask`,
+          payload: { travelId },
+          delaySeconds: NO_DRIVER_CANCEL_DELAY_S,
+          serviceAccountEmail,
+        });
+        console.log(`assignDriver: noDriverCancelTask encolada (${NO_DRIVER_CANCEL_DELAY_S}s)`);
+
+        /*await enqueueTask({
           url: `${baseUrl}/cancelTravelTask`,
           payload: { travelId },
           delaySeconds: AUTO_CANCEL_DELAY_S,
           serviceAccountEmail,
-        });
+        });*/
         console.log(`assignDriver: cancelTravelTask encolada (${AUTO_CANCEL_DELAY_S}s)`);
       } catch (taskErr: any) {
-        // Error común: queue 'rides-queue' no existe en GCP.
-        // Crear con: gcloud tasks queues create rides-queue --location=us-central1
         console.error(
-          `assignDriver: Error encolando tareas Cloud Tasks (proyecto=${process.env.GCLOUD_PROJECT}, queue=rides-queue):`,
+          `assignDriver: Error encolando tareas Cloud Tasks (proyecto=${process.env.GCLOUD_PROJECT}, queue=rides-queue-v2):`,
           taskErr?.message ?? taskErr
         );
       }
@@ -364,7 +386,7 @@ export const notifyWave2Task = functions
         await sendPushNotification(
           wave2Tokens,
           { type: 'NEW_TRAVEL', travelId, wave: '2', driverIds: wave2DriverIds.join(',') },
-          { title: 'Nuevo viaje disponible', body: 'Solicitud de viaje aún disponible.' }
+          { title: 'New ride available', body: 'Ride request still available.' }
         );
         // Un documento por driver para que cada uno tenga su propio flag processed independiente
         const ts2 = admin.firestore.Timestamp.now();
@@ -454,7 +476,7 @@ export const notifyWave3Task = functions
         await sendPushNotification(
           blastTokens,
           { type: 'NEW_TRAVEL', travelId, wave: '3', driverIds: blastDriverIds.join(',') },
-          { title: 'Nuevo viaje disponible', body: 'Solicitud de viaje disponible en tu zona.' }
+          { title: 'New ride available', body: 'A ride request is available in your area.' }
         );
         // Un documento por driver para que cada uno tenga su propio flag processed independiente
         const ts3 = admin.firestore.Timestamp.now();
@@ -494,6 +516,60 @@ async function deleteBackgroundMessages(travelId: string): Promise<void> {
   await Promise.all(snap.docs.map(doc => doc.ref.delete()));
   console.log(`deleteBackgroundMessages: eliminados ${snap.docs.length} docs para travelId=${travelId}`);
 }
+
+// ---------------------------------------------------------------------------
+// noDriverCancelTask — Cancela a los 3 min si nadie aceptó y notifica al pasajero
+// ---------------------------------------------------------------------------
+
+export const noDriverCancelTask = functions
+  .region(REGION)
+  .https.onRequest(async (req, res) => {
+    try {
+      const { travelId } = req.body ?? {};
+      if (!travelId) { res.status(400).send('Missing travelId'); return; }
+
+      const travelRef = db.collection('requestTravel').doc(travelId);
+      const snap = await travelRef.get();
+
+      if (!snap.exists) { res.status(200).send('No-op: viaje no encontrado'); return; }
+
+      const data = snap.data() as TravelDoc;
+      if (data.viaje_status !== 'pending') {
+        console.log(`noDriverCancelTask: viaje ${travelId} ya no está pending (${data.viaje_status}), no-op`);
+        res.status(200).send('No-op: viaje no pendiente');
+        return;
+      }
+
+      // Cancelar el viaje
+      await travelRef.update({ viaje_status: 'canceled' });
+      console.log(`noDriverCancelTask: viaje ${travelId} cancelado por falta de conductor (3 min)`);
+
+      // Notificar al pasajero por FCM (cubre foreground y background)
+      if (data.userId) {
+        const userSnap = await db.collection('users').doc(String(data.userId)).get();
+        const fcmToken = userSnap.data()?.fcmToken;
+        if (fcmToken) {
+          await sendUserPushNotification(
+            fcmToken,
+            { type: 'NO_DRIVER_FOUND', travelId },
+            { title: 'No driver found', body: 'No drivers are available right now. Please try again later.' }
+          );
+        }
+      }
+
+      // Limpiar background_messages de los conductores notificados
+      await deleteBackgroundMessages(travelId);
+
+      // Eliminar el documento de requestTravel — ya no es necesario
+      await travelRef.delete();
+      console.log(`noDriverCancelTask: requestTravel/${travelId} eliminado`);
+
+      res.status(200).send('OK');
+    } catch (e: any) {
+      console.error('noDriverCancelTask error:', e);
+      res.status(500).send(e.message);
+    }
+  });
 
 // ---------------------------------------------------------------------------
 // cancelTravelTask — Cancela el viaje si sigue pendiente tras el tiempo límite
@@ -767,7 +843,7 @@ export const testFCM = functions.https.onRequest(async (req, res) => {
       await sendUserPushNotification(
         passengerFcmToken,
         { type: 'DRIVER_NEAR', travelId, driverId },
-        { title: 'El conductor está cerca', body: 'Tu conductor está cerca de tu ubicación.' }
+        { title: 'Driver is near', body: 'Your driver is near your location.' }
       );
     }
 
@@ -807,7 +883,7 @@ export const notifyDriverArrivedUrl = functions.https.onRequest(async (req, res)
       await sendUserPushNotification(
         passengerFcmToken,
         { type: 'DRIVER_ARRIVED', travelId, driverId },
-        { title: 'El conductor está por llegar', body: 'Tu conductor está por llegar a tu ubicación.' }
+        { title: 'Driver is arriving', body: 'Your driver is about to arrive at your location.' }
       );
     }
 
@@ -838,6 +914,139 @@ export const updateTravelStatus = functions.https.onRequest(async (req, res) => 
     res.status(400).json({ error: e.message });
   }
 });
+
+// ---------------------------------------------------------------------------
+// getDriverETA — Estima el tiempo de llegada del conductor más cercano
+// ---------------------------------------------------------------------------
+
+/**
+ * Calcula el tiempo estimado de llegada (ETA) del conductor más cercano
+ * a la ubicación del pasajero.
+ *
+ * Parámetros (body):
+ *   direction: { lat: number, lng: number } — ubicación del pasajero
+ *
+ * Respuesta:
+ *   - { eta: number } — tiempo estimado en minutos (redondeado)
+ *   - { eta: -0 } — si no hay conductores disponibles o ETA > 16 min
+ *   - { driversNearby: number } — cantidad de conductores en radio de 10km
+ */
+export const getDriverETA = functions
+  .region(REGION)
+  .https.onRequest(async (req, res) => {
+    setCors(req, res);
+    if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+    if (req.method !== 'POST') { res.status(405).json({ error: 'Method Not Allowed' }); return; }
+
+    try {
+      const { direction } = req.body ?? {};
+      if (!direction?.lat || !direction?.lng) {
+        res.status(400).json({ error: 'Invalid payload: se requiere direction.lat y direction.lng' });
+        return;
+      }
+
+      const passengerLocation: LatLng = { lat: direction.lat, lng: direction.lng };
+
+      // Velocidad promedio urbana en km/h (considerando tráfico de Atlanta)
+      const AVG_SPEED_KMH = 25;
+      // Tiempo máximo aceptable en minutos
+      const MAX_ETA_MINUTES = 18;
+      // Radio máximo de búsqueda en km
+      const SEARCH_RADIUS_KM = 15;
+
+      // 1. Obtener todos los conductores online
+      const driversSnap = await db.collection('drivers')
+        .where('isOnline', '==', true)
+        .get();
+
+      if (driversSnap.empty) {
+        console.log('getDriverETA: No hay conductores online');
+        res.json({ eta: -0, driversNearby: 0, message: 'No hay conductores disponibles' });
+        return;
+      }
+
+      // 2. Filtrar y calcular distancias
+      interface DriverWithDistance {
+        id: string;
+        distance: number; // km
+        eta: number; // minutos
+        activeTripsCount: number;
+      }
+
+      const driversWithETA: DriverWithDistance[] = [];
+
+      for (const doc of driversSnap.docs) {
+        const data = doc.data() as DriverDoc;
+        const count = data.activeTripsCount ?? 0;
+
+        // Solo conductores con capacidad (menos de 2 viajes activos)
+        if (count >= 2) continue;
+        if (!data.location) continue;
+
+        const driverLocation = toLatLng(data.location);
+        const distance = haversineDistance(passengerLocation, driverLocation);
+
+        // Ignorar conductores fuera del radio de búsqueda
+        if (distance > SEARCH_RADIUS_KM) continue;
+
+        // Calcular ETA: tiempo = distancia / velocidad * 60 (para convertir a minutos)
+        // Añadir 2 minutos base de "tiempo de reacción/aceptación"
+        const etaMinutes = (distance / AVG_SPEED_KMH) * 60 + 2;
+
+        driversWithETA.push({
+          id: doc.id,
+          distance,
+          eta: etaMinutes,
+          activeTripsCount: count,
+        });
+      }
+
+      // 3. Ordenar: primero por activeTripsCount (preferir libres), luego por ETA
+      driversWithETA.sort((a, b) => {
+        // Priorizar conductores sin viajes activos (Grupo A)
+        if (a.activeTripsCount !== b.activeTripsCount) {
+          return a.activeTripsCount - b.activeTripsCount;
+        }
+        // Luego por ETA más bajo
+        return a.eta - b.eta;
+      });
+
+      const driversNearby = driversWithETA.length;
+
+      if (driversNearby === 0) {
+        console.log('getDriverETA: No hay conductores en el radio de búsqueda');
+        res.json({ eta: -0, driversNearby: 0, message: 'No hay conductores cercanos' });
+        return;
+      }
+
+      // 4. Tomar el conductor más cercano/disponible
+      const bestDriver = driversWithETA[0];
+      const roundedETA = Math.round(bestDriver.eta);
+
+      // 5. Si el ETA es mayor a 18 minutos, devolver -0
+      if (roundedETA > MAX_ETA_MINUTES) {
+        console.log(`getDriverETA: ETA más bajo es ${roundedETA} min, excede límite de ${MAX_ETA_MINUTES} min`);
+        res.json({
+          eta: -0,
+          driversNearby,
+          message: `Tiempo de espera estimado muy alto (${roundedETA} min)`
+        });
+        return;
+      }
+
+      console.log(`getDriverETA: ETA estimado = ${roundedETA} min, conductores cercanos = ${driversNearby}`);
+      res.json({
+        eta: roundedETA,
+        driversNearby,
+        // Info adicional útil para la UI
+        nearestDriverDistance: Math.round(bestDriver.distance * 10) / 10, // km con 1 decimal
+      });
+
+    } catch (error: any) {
+      console.error('getDriverETA error:', error);
+      res.status(500).json({ error: 'Internal error', detail: error?.message });
+    }
+  });
 
 // ---------------------------------------------------------------------------
 // notifyAllDriversTask — mantenido para compatibilidad con tareas en vuelo
@@ -883,7 +1092,7 @@ export const notifyAllDriversTask = functions
         await sendPushNotification(
           secondWaveTokens,
           { type: 'NEW_TRAVEL', travelId, wave: '2' },
-          { title: 'Nuevo viaje disponible', body: 'Solicitud de viaje aún disponible.' }
+          { title: 'New ride available', body: 'Ride request still available.' }
         );
       }
 
@@ -899,3 +1108,115 @@ export const notifyAllDriversTask = functions
       res.status(500).send(e.message);
     }
   });
+
+  /**
+   * Función para cancelar un viaje específico. Se mantiene para compatibilidad con tareas en vuelo.
+   * @deprecated Usar noDriverCancelTask. Se mantiene para tareas de Cloud Tasks ya encoladas.
+   * @param travelId ID del viaje a cancelar
+   * @param flagIsPassenger Indica si la cancelación es por parte del pasajero (true) o por falta de conductor (false)
+   * @param flagCancellRequestTravel Indica si se debe eliminar el documento de requestTravel (true) o solo actualizar su estado a 'canceled' (false)
+    * @returns Respuesta HTTP indicando el resultado de la operación
+    *
+    * Lógica:
+    * -verifica que el viaje exista y el flagIsPassenger es false y esté en estado diferente de 'pending' | 'queued' | 'in_progress';(esto significa que el viaje ya estaba activo y el conductor lo canceló antes de iniciar)
+    * -actualiza el estado del viaje a 'canceled'
+    * -elimina los background_messages asociados al viaje para evitar notificaciones futuras
+    * -elimina el documento de requestTravel si flagCancellRequestTravel es true, o lo deja con estado 'canceled' si es false
+    * -si el flagIsPassenger es false, se asume que la cancelación es por falta de conductor y se notifica al pasajero por FCM;
+    * -si flagIsPassenger es true, se asume que el pasajero canceló y no se envía notificación
+   */
+  export const cancellOperationTravelTask = functions
+    .region(REGION)
+    .https.onRequest(async (req, res) => {
+      try {
+        const { travelId, flagIsPassenger = false } = req.body ?? {};
+        if (!travelId) { res.status(400).send('Missing travelId'); return; }
+
+        const travelsRef = db.collection('travels').doc(travelId);
+        const travelsSnap = await travelsRef.get();
+
+        const requestTravelRef = db.collection('requestTravel').doc(travelId);
+        const requestTravelSnap = await requestTravelRef.get();
+
+        if (!travelsSnap.exists && !requestTravelSnap.exists) {
+          res.status(200).send('No-op: viaje no encontrado');
+          return;
+        }
+
+        // Preferir el documento en 'travels' si existe, sino usar 'requestTravel'
+        const activeSnap = travelsSnap.exists ? travelsSnap : requestTravelSnap;
+        const data = activeSnap.data() as TravelDoc;
+        const status = data?.viaje_status;
+
+        // Si el viaje ya está en un estado final, no hacemos nada
+        const finalStates = ['completed', 'canceled', 'canceled_driver', 'canceled_passenger'];
+        if (!status || finalStates.includes(status)) {
+          res.status(200).send(`No-op: viaje en estado final (${status})`);
+          return;
+        }
+
+        const now = admin.firestore.Timestamp.now();
+
+        if (flagIsPassenger) {
+          // Cancelación por parte del pasajero
+          await db.collection('historical_travels').doc(travelId).set({
+            ...(activeSnap.data() ?? {}),
+            viaje_status: 'canceled_passenger',
+            canceledAt: now,
+          });
+
+          // Limpiar y eliminar documentos activos
+          await deleteBackgroundMessages(travelId);
+          if (requestTravelSnap.exists) await requestTravelRef.delete();
+          if (travelsSnap.exists) await travelsRef.delete();
+
+          // No notificamos al conductor porque el pasajero canceló antes de que el conductor aceptara o iniciara el viaje
+          if (data.driverId) {
+            const driverSnap = await db.collection('drivers').doc(String(data.driverId)).get();
+            const fcmToken = driverSnap.data()?.fcmToken;
+            if (fcmToken) {
+              await sendUserPushNotification(
+                fcmToken,
+                { type: 'CANCELED_PASSENGER', travelId },
+                { title: 'Ride canceled by passenger', body: 'The passenger canceled the ride.' }
+              );
+            }
+          }
+
+          console.log(`cancellOperationTravelTask: travel ${travelId} cancelado por pasajero`);
+          res.status(200).send('OK: canceled_passenger');
+          return;
+        }
+
+        // Cancelación por parte del conductor (o por falta de conductor)
+        await db.collection('historical_travels').doc(travelId).set({
+          ...(activeSnap.data() ?? {}),
+          viaje_status: 'canceled_driver',
+          canceledAt: now,
+        });
+
+        // Notificar al pasajero si existe token
+        if (data.userId && !flagIsPassenger) {
+          const userSnap = await db.collection('users').doc(String(data.userId)).get();
+          const fcmToken = userSnap.data()?.fcmToken;
+          if (fcmToken) {
+            await sendUserPushNotification(
+              fcmToken,
+              { type: 'CANCEL_DRIVER', travelId },
+              { title: 'Driver canceled', body: 'The ride has been canceled by the driver.' }
+            );
+          }
+        }
+
+        // Limpiar y eliminar documentos activos
+        await deleteBackgroundMessages(travelId);
+        if (requestTravelSnap.exists) await requestTravelRef.delete();
+        if (travelsSnap.exists) await travelsRef.delete();
+
+        console.log(`cancellOperationTravelTask: travel ${travelId} cancelado por conductor`);
+        res.status(200).send('OK: canceled_driver');
+      } catch (e: any) {
+        console.error('cancellOperationTravelTask error:', e);
+        res.status(500).send(e.message);
+      }
+    });

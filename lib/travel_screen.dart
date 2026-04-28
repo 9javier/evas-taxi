@@ -135,6 +135,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     //_navigating = driverOnTripNotifier.value;
     driverOnTripNotifier.addListener(_onDriverOnTripChanged);
     pendingTravelIdNotifier.addListener(_onPendingTravelChanged);
+    passengerCanceledNotifier.addListener(_onPassengerCanceled);
     // Cargar nombre del viaje en cola si ya existe al iniciar
     if (pendingTravelIdNotifier.value != null && pendingTravelIdNotifier.value!.isNotEmpty) {
       _loadPendingTravelName(pendingTravelIdNotifier.value!);
@@ -267,6 +268,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     // activeTravelIdNotifier.removeListener(_onActiveTravelIdChanged); // eliminado
     driverOnTripNotifier.removeListener(_onDriverOnTripChanged);
     pendingTravelIdNotifier.removeListener(_onPendingTravelChanged);
+    passengerCanceledNotifier.removeListener(_onPassengerCanceled);
     tabsIndexNotifier.removeListener(_onTabChanged);
     // Detener servicio de ubicación al cerrar la pantalla
     _driverLocationService.stop();
@@ -630,6 +632,68 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     } else {
       _safeSetState(() => _pendingPassengerName = '');
     }
+  }
+
+  void _onPassengerCanceled() {
+    final canceledId = passengerCanceledNotifier.value;
+    if (canceledId == null) return;
+    passengerCanceledNotifier.value = null;
+    _showPassengerCanceledDialog();
+    _endTrip();
+  }
+
+  Future<void> _showPassengerCanceledDialog() async {
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.6),
+      builder: (ctx) => Dialog(
+        backgroundColor: const Color(0xFF1E1E26),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 60,
+                height: 60,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444).withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.cancel_outlined, color: Color(0xFFEF4444), size: 32),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Viaje cancelado',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Lo lamentamos, el pasajero canceló el viaje.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFFA0A0AB), fontSize: 14, height: 1.4),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6366F1),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('OK', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _loadPendingTravelName(String travelId) async {
@@ -1517,7 +1581,18 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trip ended (local)')));
                         return;
                       }
-                      final ok = await FirebaseActionService.completeTravel(travelId, driverId);
+                      // Consultar el status actual antes de decidir qué API usar
+                      String currentStatus = '';
+                      try {
+                        final snap = await FirebaseFirestore.instance.collection('travels').doc(travelId).get();
+                        currentStatus = (snap.data()?['viaje_status'] ?? '').toString();
+                      } catch (_) {}
+                      bool ok;
+                      if (currentStatus == 'in_progress') {
+                        ok = await FirebaseActionService.completeTravel(travelId, driverId);
+                      } else {
+                        ok = await FirebaseActionService.cancellOperationTravelTask(travelId, flagIsPassenger: false);
+                      }
                       _endTrip();
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
