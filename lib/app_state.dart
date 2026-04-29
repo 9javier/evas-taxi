@@ -20,6 +20,10 @@ final ValueNotifier<String> activeVehicleLabelNotifier = ValueNotifier<String>('
 // TravelScreen lo escucha para limpiar el viaje y mostrar el modal de aviso.
 final ValueNotifier<String?> passengerCanceledNotifier = ValueNotifier<String?>(null);
 
+// Señal puntual del Emergency Release: se pone true para indicar al TravelScreen que
+// limpie todo el estado del viaje en curso. El listener lo resetea a false inmediatamente.
+final ValueNotifier<bool> driverReleasedNotifier = ValueNotifier<bool>(false);
+
 // Cuando es true el listener de authStateChanges en main.dart no navega automáticamente.
 // Se activa durante el flujo OTP para evitar que la app vaya a WelcomeScreen antes de
 // verificar que el número de teléfono corresponde a un conductor registrado.

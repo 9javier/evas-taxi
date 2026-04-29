@@ -136,6 +136,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     driverOnTripNotifier.addListener(_onDriverOnTripChanged);
     pendingTravelIdNotifier.addListener(_onPendingTravelChanged);
     passengerCanceledNotifier.addListener(_onPassengerCanceled);
+    driverReleasedNotifier.addListener(_onDriverReleased);
     // Cargar nombre del viaje en cola si ya existe al iniciar
     if (pendingTravelIdNotifier.value != null && pendingTravelIdNotifier.value!.isNotEmpty) {
       _loadPendingTravelName(pendingTravelIdNotifier.value!);
@@ -269,6 +270,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     driverOnTripNotifier.removeListener(_onDriverOnTripChanged);
     pendingTravelIdNotifier.removeListener(_onPendingTravelChanged);
     passengerCanceledNotifier.removeListener(_onPassengerCanceled);
+    driverReleasedNotifier.removeListener(_onDriverReleased);
     tabsIndexNotifier.removeListener(_onTabChanged);
     // Detener servicio de ubicación al cerrar la pantalla
     _driverLocationService.stop();
@@ -621,6 +623,12 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   void _onDriverOnTripChanged() {
     debugPrint('driverOnTripNotifier changed -> ${driverOnTripNotifier.value}');
     if (mounted) setState(() => _navigating = driverOnTripNotifier.value);
+  }
+
+  void _onDriverReleased() {
+    if (!driverReleasedNotifier.value) return;
+    driverReleasedNotifier.value = false; // consumir la señal antes de actuar
+    _endTrip();
   }
 
   void _onPendingTravelChanged() {

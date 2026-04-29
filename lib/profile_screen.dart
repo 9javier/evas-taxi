@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'app_state.dart';
+import 'firebase_action_service.dart';
 import 'local_db.dart';
 
 // ── Paleta Dark Premium (alineada con travel_screen y notification handler) ─────
@@ -27,6 +28,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final TextEditingController _phoneController = TextEditingController();
   String? _avatarUrl;
   bool _loading = false;
+  bool _releasing = false;
   Map<String, Map<String, dynamic>> _vehicles = {};
   String? _activePlate;
 
@@ -51,6 +53,142 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('You have been signed out.')),
       );
+    }
+  }
+
+  Future<void> _showReleaseConfirmation() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierColor: Colors.black54,
+      builder: (ctx) => Dialog(
+        backgroundColor: _pgSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 56, height: 56,
+                decoration: BoxDecoration(
+                  color: _pgAmber.withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.warning_amber_rounded, color: _pgAmber, size: 28),
+              ),
+              const SizedBox(height: 16),
+              const Text(
+                'Release Driver',
+                style: TextStyle(color: _pgTextMain, fontSize: 17, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'This will cancel all active and queued trips, reset your trip counter, and set your status to available.\n\nUse this only if the app is stuck or a trip cannot be closed normally.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: _pgTextMuted, fontSize: 13, height: 1.55),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => Navigator.of(ctx).pop(false),
+                      child: Container(
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: _pgBg,
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'Cancel',
+                            style: TextStyle(color: _pgTextMuted, fontSize: 14, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => Navigator.of(ctx).pop(true),
+                      child: Container(
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: _pgAmber.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(11),
+                          border: Border.all(color: _pgAmber.withOpacity(0.5), width: 1),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            'Release',
+                            style: TextStyle(color: _pgAmber, fontSize: 14, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (confirmed == true) await _releaseDriver();
+  }
+
+  Future<void> _releaseDriver() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    setState(() => _releasing = true);
+    try {
+      final activeTravelId = activeTravelIdNotifier.value;
+      final queuedTravelId = pendingTravelIdNotifier.value;
+      final isInProgress   = driverOnTripNotifier.value;
+
+      if (activeTravelId != null && activeTravelId.isNotEmpty) {
+        if (isInProgress) {
+          await FirebaseActionService.completeTravel(activeTravelId, user.uid);
+        } else {
+          await FirebaseActionService.cancellOperationTravelTask(activeTravelId);
+        }
+      }
+
+      if (queuedTravelId != null && queuedTravelId.isNotEmpty) {
+        await FirebaseActionService.cancellOperationTravelTask(queuedTravelId);
+      }
+
+      await FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(user.uid)
+          .update({
+            'activeTripsCount': 0,
+            'currentTravelId': FieldValue.delete(),
+            'status': 'available',
+          });
+
+      activeTravelIdNotifier.value  = null;
+      pendingTravelIdNotifier.value = null;
+      driverOnTripNotifier.value    = false;
+      driverReleasedNotifier.value  = true;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Driver released. You are now available.'),
+            backgroundColor: Color(0xFF1E1E26),
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Release failed. Please try again.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _releasing = false);
     }
   }
 
@@ -201,27 +339,69 @@ class _ProfileScreenState extends State<ProfileScreen> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-          child: GestureDetector(
-            onTap: _signOut,
-            child: Container(
-              height: 50,
-              decoration: BoxDecoration(
-                color: _pgSurface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: _pgRed.withOpacity(0.4), width: 1),
-              ),
-              child: const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.logout_rounded, color: _pgRed, size: 18),
-                  SizedBox(width: 8),
-                  Text(
-                    'Sign Out',
-                    style: TextStyle(color: _pgRed, fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.3),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Emergency release button
+              GestureDetector(
+                onTap: (_loading || _releasing) ? null : _showReleaseConfirmation,
+                child: Container(
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: _pgSurface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: _pgAmber.withOpacity(0.25), width: 1),
                   ),
-                ],
+                  child: _releasing
+                      ? const Center(
+                          child: SizedBox(
+                            width: 18, height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: _pgAmber),
+                          ),
+                        )
+                      : Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.warning_amber_rounded, color: _pgAmber.withOpacity(0.7), size: 16),
+                            const SizedBox(width: 7),
+                            Text(
+                              'Emergency Release',
+                              style: TextStyle(
+                                color: _pgAmber.withOpacity(0.7),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
               ),
-            ),
+              const SizedBox(height: 8),
+              // Sign out button
+              GestureDetector(
+                onTap: _signOut,
+                child: Container(
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: _pgSurface,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: _pgRed.withOpacity(0.4), width: 1),
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.logout_rounded, color: _pgRed, size: 18),
+                      SizedBox(width: 8),
+                      Text(
+                        'Sign Out',
+                        style: TextStyle(color: _pgRed, fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.3),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
