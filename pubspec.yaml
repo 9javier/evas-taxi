@@ -48,6 +48,7 @@ dependencies:
   path_provider: ^2.0.13
   path: ^1.8.3
   flutter_foreground_task: ^8.0.0
+  flutter_local_notifications: ^17.2.0
 dev_dependencies:
   flutter_test:
     sdk: flutter

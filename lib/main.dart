@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'app_state.dart';
 import 'login_screen.dart';
@@ -13,10 +14,46 @@ import 'notification_guard.dart';
 import 'welcome_screen.dart';
 import 'travel_notification_handler.dart';
 
+// Canal de alta importancia para solicitudes de viaje
+const AndroidNotificationChannel _travelChannel = AndroidNotificationChannel(
+  'new_travel_channel',
+  'Nuevos viajes',
+  description: 'Alertas de nuevas solicitudes de viaje',
+  importance: Importance.max,
+  playSound: true,
+  enableVibration: true,
+);
+
+// Handler que se ejecuta en un isolate separado cuando la app está en background/bloqueada.
+// Muestra una notificación local de alta importancia para avisar al conductor.
+@pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // La Cloud Function ya guarda el mensaje en background_messages con acceso de admin.
-  // No se necesita escribir a Firestore desde aquí.
   await Firebase.initializeApp();
+  if ((message.data['type'] ?? '') != 'NEW_TRAVEL') return;
+
+  final plugin = FlutterLocalNotificationsPlugin();
+  await plugin.initialize(
+    const InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+    ),
+  );
+  await plugin.show(
+    message.hashCode.abs() % 2147483647,
+    'Nuevo viaje disponible',
+    'Tienes una nueva solicitud de viaje',
+    NotificationDetails(
+      android: AndroidNotificationDetails(
+        _travelChannel.id,
+        _travelChannel.name,
+        channelDescription: _travelChannel.description,
+        importance: Importance.max,
+        priority: Priority.high,
+        playSound: true,
+        enableVibration: true,
+        fullScreenIntent: true,
+      ),
+    ),
+  );
 }
 
 void handleTravelNotification(String travelId, BuildContext context, String? phoneNumber) {
@@ -46,8 +83,35 @@ Future<void> main() async {
     ),
   );
 
+  // Crear el canal Android de alta importancia para solicitudes de viaje.
+  // Debe existir antes de mostrar la primera notificación (idempotente).
+  final localNotif = FlutterLocalNotificationsPlugin();
+  await localNotif.initialize(
+    const InitializationSettings(
+      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      iOS: DarwinInitializationSettings(),
+    ),
+  );
+  await localNotif
+      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(_travelChannel);
+
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  await FirebaseMessaging.instance.requestPermission();
+
+  // Solicitar permiso de notificaciones (en Android 13+ pide POST_NOTIFICATIONS)
+  await FirebaseMessaging.instance.requestPermission(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
+
+  // En iOS: no mostrar la notificación del sistema cuando la app está en foreground;
+  // el listener onMessage ya muestra el diálogo in-app con sonido.
+  await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+    alert: false,
+    badge: false,
+    sound: false,
+  );
 
   registerPendingHandler(handleTravelNotification);
 

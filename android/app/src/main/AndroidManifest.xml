@@ -7,6 +7,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
     <!-- Permite que Android no mate el proceso cuando la app está en background con GPS activo -->
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <!-- Requerido en Android 13+ (API 33) para mostrar notificaciones -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Permite mostrar notificaciones en pantalla de bloqueo (cabecera/heads-up) -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <application
         android:label="evas_taxi_driver"
         android:name="${applicationName}"
@@ -47,6 +51,10 @@
         <meta-data
             android:name="io.flutter.embedding.android.EnableImpeller"
             android:value="false" />
+        <!-- Canal FCM por defecto: apunta al canal de alta importancia creado en Dart -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="new_travel_channel"/>
         <!-- Google Maps API Key: Pega tu API key aquí -->
         <meta-data android:name="com.google.android.geo.API_KEY"
                    android:value="AIzaSyDElBu8oLUbkYFD4ptEy-6vpIfxaTOK3Xs"/>
