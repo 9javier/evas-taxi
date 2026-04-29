@@ -86,6 +86,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   bool _sheetExpanded = false;
   final Map<String, DateTime> _lastLoadedAt = {};
   bool _loadingTravelData = false;
+  // Última posición en la que se solicitó una ruta nueva (para throttle por distancia)
+  Position? _lastRoutePosition;
 
   bool _navigating = false;
   // Indica si el conductor ya recogió al pasajero (true solo después de pulsar "Recoger al Pasajero").
@@ -176,7 +178,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     // Suscribirse localmente para actualizar el marcador del conductor y recálculo de ruta mínimo cada 12s
     try {
       _positionSubscription = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 5),
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10),
       ).listen((pos) async {
         _currentPosition = pos;
         _driverLatLng = LatLng(pos.latitude, pos.longitude);
@@ -216,10 +218,16 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           }
         }
 
-        // Si estamos navegando, recalcular ruta con un throttle (cada 12s)
+        // Recalcular ruta si: pasaron ≥30 s (refresh forzado), o ≥12 s Y el driver se movió ≥30 m.
+        // Esto evita llamadas innecesarias a la API de Directions cuando el conductor está parado.
         final now = DateTime.now();
-        if (_lastRouteUpdatedAt == null || now.difference(_lastRouteUpdatedAt!).inSeconds >= 12) {
+        final _secsSinceRoute = _lastRouteUpdatedAt == null ? 999 : now.difference(_lastRouteUpdatedAt!).inSeconds;
+        final _distSinceRoute = _lastRoutePosition == null
+            ? double.infinity
+            : Geolocator.distanceBetween(_lastRoutePosition!.latitude, _lastRoutePosition!.longitude, pos.latitude, pos.longitude);
+        if (_secsSinceRoute >= 30 || (_secsSinceRoute >= 12 && _distSinceRoute >= 30)) {
           _lastRouteUpdatedAt = now;
+          _lastRoutePosition = pos;
           try {
             if (_passengerPickedUp) {
               // Solo cuando el pasajero fue recogido trazamos hacia el dropoff/destination
@@ -838,10 +846,11 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     if (!mounted) return;
     if (_loadingTravelData) return;
     _loadingTravelData = true;
-    // Resetear flags de notificación para el nuevo viaje
+    // Resetear flags de notificación y throttle de ruta para el nuevo viaje
     _notifiedDriverNear = false;
     _notifiedDriverArrived = false;
     _checkingProximity = false;
+    _lastRoutePosition = null;
     try {
       DocumentSnapshot<Map<String, dynamic>> doc = await FirebaseFirestore.instance.collection('travels').doc(travelId).get();
       if (!mounted) return;
