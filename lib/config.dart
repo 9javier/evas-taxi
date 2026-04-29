@@ -15,6 +15,8 @@ class Env {
   static const String promoteQueuedTravelUrl = 'https://us-central1-taxiusa-atlanta.cloudfunctions.net/promoteQueuedTravel';
   // URL del Cloud Function que cancela un viaje activo (antes de in_progress)
   static const String cancellOperationTravelTaskUrl = 'https://us-central1-taxiusa-atlanta.cloudfunctions.net/cancellOperationTravelTask';
+  // URL del Cloud Function que rescata notificaciones pendientes no procesadas
+  static const String claimPendingBackgroundMessageUrl = 'https://us-central1-taxiusa-atlanta.cloudfunctions.net/claimPendingBackgroundMessage';
 }
 
 class Config {

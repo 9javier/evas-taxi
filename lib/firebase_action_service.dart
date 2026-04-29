@@ -103,6 +103,26 @@ class FirebaseActionService {
     }
   }
 
+  /// Busca en background_messages un doc pendiente del driver.
+  /// Limpia obsoletos (>12 min) y viajes inexistentes.
+  /// Retorna el travelId si hay uno válido, o null si no hay nada pendiente.
+  static Future<String?> claimPendingBackgroundMessage(String driverId) async {
+    if (driverId.isEmpty) return null;
+    try {
+      final resp = await http
+          .post(Uri.parse(Env.claimPendingBackgroundMessageUrl),
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({'driverId': driverId}))
+          .timeout(const Duration(seconds: 8));
+      if (resp.statusCode != 200) return null;
+      final body = jsonDecode(resp.body) as Map<String, dynamic>;
+      final travelId = body['travelId']?.toString() ?? '';
+      return travelId.isNotEmpty ? travelId : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<bool> updateTravelStatus(String travelId, String status) async {
     if (travelId.isEmpty || status.isEmpty) return false;
     try {

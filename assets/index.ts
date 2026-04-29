@@ -1173,6 +1173,22 @@ export const notifyAllDriversTask = functions
           // No notificamos al conductor porque el pasajero canceló antes de que el conductor aceptara o iniciara el viaje
           if (data.driverId) {
             const driverSnap = await db.collection('drivers').doc(String(data.driverId)).get();
+            // Necesitamos cambiar el status del conductor a 'available' y limpiar currentTravelId si el conductor estaba marcado como 'on_trip'
+            if (driverSnap.exists) {
+              const driverData = driverSnap.data() as DriverDoc;
+              const updates: Record<string, unknown> = {};
+              if (driverData.status === 'on_trip') {
+                updates.status = 'available';
+                updates.currentTravelId = admin.firestore.FieldValue.delete();
+              }
+              const activeTripsCount = driverData.activeTripsCount ?? 0;
+              if (activeTripsCount > 0) {
+                updates.activeTripsCount = Math.max(0, activeTripsCount - 1);
+              }
+              if (Object.keys(updates).length > 0) {
+                await db.collection('drivers').doc(String(data.driverId)).update(updates);
+              }
+            }
             const fcmToken = driverSnap.data()?.fcmToken;
             if (fcmToken) {
               await sendUserPushNotification(
@@ -1197,6 +1213,24 @@ export const notifyAllDriversTask = functions
 
         // Notificar al pasajero si existe token
         if (data.userId && !flagIsPassenger) {
+            // Necesitamos cambiar el status del conductor a 'available' y limpiar currentTravelId si el conductor estaba marcado como 'on_trip'
+            const driverSnap = await db.collection('drivers').doc(String(data.driverId)).get();
+            if (driverSnap.exists) {
+              const driverData = driverSnap.data() as DriverDoc;
+              const updates: Record<string, unknown> = {};
+              if (driverData.status === 'on_trip') {
+                updates.status = 'available';
+                updates.currentTravelId = admin.firestore.FieldValue.delete();
+              }
+              const activeTripsCount = driverData.activeTripsCount ?? 0;
+              if (activeTripsCount > 0) {
+                updates.activeTripsCount = Math.max(0, activeTripsCount - 1);
+              }
+              if (Object.keys(updates).length > 0) {
+                await db.collection('drivers').doc(String(data.driverId)).update(updates);
+              }
+            }
+          // Data user for passenger notification
           const userSnap = await db.collection('users').doc(String(data.userId)).get();
           const fcmToken = userSnap.data()?.fcmToken;
           if (fcmToken) {
@@ -1220,3 +1254,92 @@ export const notifyAllDriversTask = functions
         res.status(500).send(e.message);
       }
     });
+
+// ---------------------------------------------------------------------------
+// claimPendingBackgroundMessage — Rescate de notificaciones no mostradas
+// ---------------------------------------------------------------------------
+/**
+ * La app lo llama a los 10 s de abrir TravelScreen si no detectó viaje activo.
+ * Busca en background_messages un doc no procesado del driver:
+ *  - Si receivedAt > 12 min → elimina el doc (obsoleto).
+ *  - Si el viaje ya no existe en Firestore → elimina el doc.
+ *  - Si es válido → marca processed=true y devuelve travelId.
+ * Responde { travelId: string | null }.
+ */
+export const claimPendingBackgroundMessage = functions
+  .region(REGION)
+  .https.onRequest(async (req, res) => {
+    setCors(req, res);
+    if (req.method === 'OPTIONS') { res.status(204).send(''); return; }
+    if (req.method !== 'POST') { res.status(405).json({ error: 'Method Not Allowed' }); return; }
+
+    const { driverId } = req.body ?? {};
+    if (!driverId) { res.status(400).json({ error: 'Missing driverId' }); return; }
+
+    try {
+      const cutoffMs = Date.now() - 12 * 60 * 1000;
+
+      const snap = await db.collection('background_messages')
+        .where('driverId', '==', driverId)
+        .where('processed', '==', false)
+        .limit(10)
+        .get();
+
+      if (snap.empty) {
+        res.status(200).json({ travelId: null });
+        return;
+      }
+
+      // Ordenar por receivedAt desc en código (evita índice compuesto)
+      const docs = snap.docs.slice().sort((a, b) => {
+        const aMs = (a.data().receivedAt as admin.firestore.Timestamp | undefined)?.toMillis() ?? 0;
+        const bMs = (b.data().receivedAt as admin.firestore.Timestamp | undefined)?.toMillis() ?? 0;
+        return bMs - aMs;
+      });
+
+      const batch = db.batch();
+      let validTravelId: string | null = null;
+
+      for (const doc of docs) {
+        const data = doc.data();
+        const receivedAtMs = (data.receivedAt as admin.firestore.Timestamp | undefined)?.toMillis() ?? 0;
+
+        // Obsoleto: más de 12 min → eliminar
+        if (!receivedAtMs || receivedAtMs < cutoffMs) {
+          batch.delete(doc.ref);
+          console.log(`claimPendingBackgroundMessage: doc ${doc.id} obsoleto → eliminado`);
+          continue;
+        }
+
+        const travelId = (data.data?.travelId ?? '').toString();
+        if (!travelId) { batch.delete(doc.ref); continue; }
+
+        // Verificar que el viaje aún existe en Firestore
+        const [reqSnap, travSnap] = await Promise.all([
+          db.collection('requestTravel').doc(travelId).get(),
+          db.collection('travels').doc(travelId).get(),
+        ]);
+
+        if (!reqSnap.exists && !travSnap.exists) {
+          batch.delete(doc.ref);
+          console.log(`claimPendingBackgroundMessage: travelId=${travelId} ya no existe → eliminado`);
+          continue;
+        }
+
+        // Primer doc válido: marcarlo y retornar su travelId
+        if (validTravelId === null) {
+          batch.update(doc.ref, { processed: true });
+          validTravelId = travelId;
+        } else {
+          batch.update(doc.ref, { processed: true });
+        }
+      }
+
+      await batch.commit();
+      console.log(`claimPendingBackgroundMessage: driverId=${driverId} → travelId=${validTravelId}`);
+      res.status(200).json({ travelId: validTravelId });
+    } catch (e: any) {
+      console.error('claimPendingBackgroundMessage error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });

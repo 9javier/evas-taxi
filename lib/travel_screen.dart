@@ -15,6 +15,7 @@ import 'app_state.dart';
 import 'config.dart';
 import 'driver_location_service.dart';
 import 'firebase_action_service.dart';
+import 'travel_notification_handler.dart';
 import 'package:flutter/rendering.dart';
 
 // ── Paleta Dark Premium (alineada con el popup de solicitud de viaje) ────────
@@ -88,6 +89,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   bool _loadingTravelData = false;
   // Última posición en la que se solicitó una ruta nueva (para throttle por distancia)
   Position? _lastRoutePosition;
+  // Timer de rescate: a los 10 s busca notificaciones pendientes si aún no hay viaje
+  Timer? _pendingCheckTimer;
 
   bool _navigating = false;
   // Indica si el conductor ya recogió al pasajero (true solo después de pulsar "Recoger al Pasajero").
@@ -174,6 +177,9 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     } else {
       debugPrint('DriverLocationService no iniciado: usuario no autenticado.');
     }
+
+    // A los 10 s, si aún no hay viaje activo, buscar notificaciones pendientes no mostradas.
+    _pendingCheckTimer = Timer(const Duration(seconds: 10), _claimPendingBackgroundMessage);
 
     // Suscribirse localmente para actualizar el marcador del conductor y recálculo de ruta mínimo cada 12s
     try {
@@ -280,6 +286,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     passengerCanceledNotifier.removeListener(_onPassengerCanceled);
     driverReleasedNotifier.removeListener(_onDriverReleased);
     tabsIndexNotifier.removeListener(_onTabChanged);
+    _pendingCheckTimer?.cancel();
     // Detener servicio de ubicación al cerrar la pantalla
     _driverLocationService.stop();
     _positionSubscription?.cancel();
@@ -1781,6 +1788,32 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       debugPrint('Error en _checkProximityAndNotify: $e');
     } finally {
       _checkingProximity = false;
+    }
+  }
+
+  /// Se ejecuta una sola vez, 10 s después de entrar a TravelScreen.
+  /// Solo actúa si no hay ningún viaje activo ni cargado en pantalla.
+  /// Llama a la Cloud Function para rescatar notificaciones pendientes no mostradas.
+  Future<void> _claimPendingBackgroundMessage() async {
+    // Condiciones de salida: ya hay viaje activo o cargado
+    if (!mounted) return;
+    final hasActiveTravel = (activeTravelIdNotifier.value?.isNotEmpty ?? false) ||
+        (widget.travelId?.isNotEmpty ?? false);
+    final hasTravelData = _passengerLatLng != null || _destinationLatLng != null;
+    if (hasActiveTravel || hasTravelData) return;
+    if (travelDialogActive) return;
+    if (_driverId == null || _driverId!.isEmpty) return;
+
+    // Capturar contexto antes del await para evitar uso tras async gap
+    final ctx = context;
+    try {
+      final travelId = await FirebaseActionService.claimPendingBackgroundMessage(_driverId!);
+      if (travelId == null || travelId.isEmpty) return;
+      if (!mounted) return;
+      debugPrint('[PendingCheck] Notificación rescatada → travelId=$travelId');
+      showTravelRequestDialog(ctx, travelId, null);
+    } catch (e) {
+      debugPrint('[PendingCheck] Error: $e');
     }
   }
 
