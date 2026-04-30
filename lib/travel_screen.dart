@@ -72,6 +72,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   String _passengerName = 'Pasajero';
   BitmapDescriptor? _passengerIcon;
   BitmapDescriptor? _driverIcon;
+  BitmapDescriptor? _destinationIcon;
   // Control de visibilidad del marcador del pasajero
   bool _showPassengerMarker = true;
   // Animación suave del marcador del conductor
@@ -499,6 +500,14 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           if (!mounted) return;
           if (fallback != null) _safeSetState(() => _driverIcon = BitmapDescriptor.bytes(fallback));
         } catch (_) {}
+      }
+      try {
+        final int destSize = (baseSize * 0.45).round().clamp(20, 48);
+        final destBytes = await _getBytesFromAsset('assets/destino.svg', destSize);
+        if (!mounted) return;
+        if (destBytes != null) _safeSetState(() => _destinationIcon = BitmapDescriptor.bytes(destBytes));
+      } catch (e) {
+        debugPrint('asset destino.svg falló: $e');
       }
     } catch (e) {
       debugPrint('Error cargando iconos: $e');
@@ -1144,7 +1153,12 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     }
     if (_dropoffLatLng != null) {
       _markers.removeWhere((m) => m.markerId.value == 'dropoff');
-      _markers.add(Marker(markerId: const MarkerId('dropoff'), position: _dropoffLatLng!, infoWindow: const InfoWindow(title: 'Destino final')));
+      _markers.add(Marker(
+        markerId: const MarkerId('dropoff'),
+        position: _dropoffLatLng!,
+        infoWindow: const InfoWindow(title: 'Destino final'),
+        icon: _destinationIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+      ));
     }
 
     if (driverLocation != null && dest != null) {
