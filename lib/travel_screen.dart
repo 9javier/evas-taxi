@@ -397,7 +397,9 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     _safeSetState(() {
       _navigating = true;
       _passengerPickedUp = true;
+      _showPassengerMarker = false;
     });
+    _markers.removeWhere((m) => m.markerId.value == 'passenger');
     driverOnTripNotifier.value = true;
 
     // Preparar ruta inicial en el mapa (usar _driverLatLng actualizado si fue posible)
@@ -420,12 +422,10 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       await _updateMapPadding();
 
       if (gpsMode) {
-        // Modo GPS: centra cámara en el driver con buena inclinación y bearing hacia el destino
         final bearing = _computeBearing(origin, dest);
-        // Zoom recomendado para conducción urbana; ajustar según preferencia/dispositivo
-        final double zoom = 20.2;
-        final camera = CameraPosition(target: origin, zoom: zoom, tilt: 20.0, bearing: bearing);
-        // Pequeño delay para asegurar que la polyline ya está renderizada antes del cambio de cámara
+        const double zoom = 17.5;
+        const double tilt = 50.0;
+        final camera = CameraPosition(target: origin, zoom: zoom, tilt: tilt, bearing: bearing);
         await Future.delayed(const Duration(milliseconds: 80));
         await _mapController!.animateCamera(CameraUpdate.newCameraPosition(camera));
         return;
@@ -827,7 +827,9 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             _navigating = true;
             _passengerPickedUp = true;
             _sheetExpanded = true;
+            _showPassengerMarker = false;
           });
+          _markers.removeWhere((m) => m.markerId.value == 'passenger');
         }
         if (!driverOnTripNotifier.value) driverOnTripNotifier.value = true;
       } else if (remoteStatus != null && endStatuses.contains(remoteStatus.toLowerCase())) {
@@ -901,7 +903,9 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           _safeSetState(() {
             _navigating = true;
             _passengerPickedUp = true;
+            _showPassengerMarker = false;
           });
+          _markers.removeWhere((m) => m.markerId.value == 'passenger');
           if (!driverOnTripNotifier.value) driverOnTripNotifier.value = true;
         } else if (viajeStatus.isNotEmpty && endStatuses.contains(viajeStatus.toLowerCase())) {
           if (driverOnTripNotifier.value) driverOnTripNotifier.value = false;

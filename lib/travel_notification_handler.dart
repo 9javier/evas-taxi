@@ -1,10 +1,15 @@
 import 'dart:async';
 import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart' as svg;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import 'firebase_action_service.dart';
@@ -768,6 +773,8 @@ class _MapPreviewState extends State<MapPreview> {
   GoogleMapController? _controller;
   final Set<Marker> _markers = {};
   final Set<Polyline> _polylines = {};
+  BitmapDescriptor? _originIcon;
+  BitmapDescriptor? _destinationIcon;
 
   @override
   void initState() {
@@ -775,14 +782,79 @@ class _MapPreviewState extends State<MapPreview> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _setup());
   }
 
+  Future<void> _loadIcons() async {
+    final double dpr = ui.PlatformDispatcher.instance.views.first.devicePixelRatio;
+    final int size = (56 * dpr.clamp(1.0, 3.0) * 0.7 * 0.7).round();
+
+    // Cargar passenger.png para el origen
+    try {
+      final data = await rootBundle.load('assets/passenger.png');
+      final codec = await ui.instantiateImageCodec(data.buffer.asUint8List(), targetWidth: size);
+      final frame = await codec.getNextFrame();
+      final byteData = await frame.image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData != null && mounted) {
+        _originIcon = BitmapDescriptor.bytes(byteData.buffer.asUint8List());
+      }
+    } catch (e) {
+      debugPrint('Error cargando passenger.png en MapPreview: $e');
+    }
+
+    // Cargar destino.svg para el destino
+    try {
+      final int destSize = (size * 0.45).round().clamp(20, 48);
+      final bytes = await _getSvgBytes('assets/destino.svg', destSize, dpr);
+      if (bytes != null && mounted) {
+        _destinationIcon = BitmapDescriptor.bytes(bytes);
+      }
+    } catch (e) {
+      debugPrint('Error cargando destino.svg en MapPreview: $e');
+    }
+  }
+
+  Future<Uint8List?> _getSvgBytes(String path, int size, double dpr) async {
+    try {
+      final GlobalKey repaintKey = GlobalKey();
+      final overlay = OverlayEntry(builder: (context) {
+        return Positioned(
+          left: -9999,
+          top: -9999,
+          width: size.toDouble(),
+          height: size.toDouble(),
+          child: RepaintBoundary(
+            key: repaintKey,
+            child: SizedBox(
+              width: size.toDouble(),
+              height: size.toDouble(),
+              child: svg.SvgPicture.asset(path, width: size.toDouble(), height: size.toDouble(), fit: BoxFit.contain),
+            ),
+          ),
+        );
+      });
+      Overlay.of(context).insert(overlay);
+      await Future.delayed(const Duration(milliseconds: 100));
+      final boundary = repaintKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) { overlay.remove(); return null; }
+      final image = await boundary.toImage(pixelRatio: dpr);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      final bytes = byteData?.buffer.asUint8List();
+      overlay.remove();
+      try { image.dispose(); } catch (_) {}
+      return bytes;
+    } catch (e) {
+      debugPrint('Error renderizando SVG en MapPreview: $e');
+      return null;
+    }
+  }
+
   void _setup() async {
+    await _loadIcons();
     _markers.clear();
     if (widget.origin != null) {
       _markers.add(Marker(
         markerId: const MarkerId('origin'),
         position: widget.origin!,
         infoWindow: const InfoWindow(title: 'Pickup'),
-        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+        icon: _originIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
       ));
     }
     if (widget.destination != null) {
@@ -790,6 +862,7 @@ class _MapPreviewState extends State<MapPreview> {
         markerId: const MarkerId('destination'),
         position: widget.destination!,
         infoWindow: const InfoWindow(title: 'Destination'),
+        icon: _destinationIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
       ));
     }
     _polylines.clear();
