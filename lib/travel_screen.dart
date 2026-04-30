@@ -168,15 +168,18 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         }
       });
 
-    // Iniciar el servicio de ubicación del chofer usando driverId (Firebase Auth uid).
+    // Iniciar el servicio de ubicación usando el ID real del documento del conductor.
     final user = FirebaseAuth.instance.currentUser;
-    _driverId = user?.uid;
-    if (_driverId != null && _driverId!.isNotEmpty) {
-      // distanceFilter y minIntervalSeconds configurables: mantienen uso de datos bajo
+    if (user == null) {
+      debugPrint('DriverLocationService no iniciado: usuario no autenticado.');
+    } else if (driverDocId != null) {
+      // ID ya resuelto en esta sesión (login reciente o _refreshFcmToken ya corrió).
+      _driverId = driverDocId;
       _driverLocationService.start(driverId: _driverId!, distanceFilter: 20, minIntervalSeconds: 10);
       _loadActiveVehicle();
     } else {
-      debugPrint('DriverLocationService no iniciado: usuario no autenticado.');
+      // App reiniciada sin pasar por login — resolver el ID por query antes de iniciar.
+      _resolveDriverIdAndStart(user);
     }
 
     // A los 10 s, si aún no hay viaje activo, buscar notificaciones pendientes no mostradas.
@@ -343,18 +346,19 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     final target = _dropoffLatLng ?? _destinationLatLng ?? _passengerLatLng;
     if (target == null) return;
 
-    // Intentar leer la ubicación del driver desde la colección 'drivers' en Firestore
+    // Actualizar viaje_status a in_progress via Cloud Function (Admin SDK, sin restricciones de permisos).
+    try {
+      final travelId = (widget.travelId ?? activeTravelIdNotifier.value).toString();
+      if (travelId.isNotEmpty && travelId != 'null') {
+        await FirebaseActionService.updateTravelStatus(travelId, 'in_progress');
+      }
+    } catch (e) {
+      debugPrint('Error actualizando viaje_status a in_progress: $e');
+    }
+
+    // Leer ubicación actual del driver desde Firestore para centrar la cámara.
     try {
       if (_driverId != null && _driverId!.isNotEmpty) {
-       //await FirebaseActionService.notifyDriverArrived((widget.travelId ?? activeTravelIdNotifier.value).toString(), _driverId.toString());
-        // Actualizar el status del viaje a IN_PROGRESS directamente en Firestore
-        final travelId = (widget.travelId ?? activeTravelIdNotifier.value).toString();
-        if (travelId.isNotEmpty) {
-          await FirebaseFirestore.instance
-              .collection('travels')
-              .doc(travelId)
-              .update({'viaje_status': 'in_progress'});
-        }
         final doc = await FirebaseFirestore.instance.collection('drivers').doc(_driverId).get();
         if (doc.exists) {
           final data = doc.data();
@@ -1844,6 +1848,32 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     if (distMeters > 800) return 15.5;
     if (distMeters > 300) return 16.5;
     return 17.5;
+  }
+
+  /// Resuelve el ID real del documento del driver consultando Firestore por fullphone,
+  /// luego inicia el servicio de ubicación con el ID correcto.
+  Future<void> _resolveDriverIdAndStart(User user) async {
+    final phone = user.phoneNumber ?? '';
+    if (phone.isNotEmpty) {
+      try {
+        final q = await FirebaseFirestore.instance
+            .collection('drivers')
+            .where('fullphone', isEqualTo: phone)
+            .limit(1)
+            .get();
+        if (q.docs.isNotEmpty) {
+          driverDocId = q.docs.first.id;
+          _driverId = driverDocId;
+        }
+      } catch (e) {
+        debugPrint('Error resolviendo driverDocId: $e');
+      }
+    }
+    _driverId ??= user.uid; // fallback: si la query falla, usar uid y arriesgarse
+    if (mounted) {
+      _driverLocationService.start(driverId: _driverId!, distanceFilter: 20, minIntervalSeconds: 10);
+      _loadActiveVehicle();
+    }
   }
 
   /// Intenta obtener la ubicación actual del dispositivo, solicitando permisos si es necesario.

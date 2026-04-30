@@ -39,13 +39,31 @@ class _MainTabsScreenState extends State<MainTabsScreen> with WidgetsBindingObse
     if (user == null) return;
     try {
       final token = await FirebaseMessaging.instance.getToken();
-      if (token != null) {
-        await FirebaseFirestore.instance
-            .collection('drivers')
-            .doc(user.uid)
-            .update({'fcmToken': token});
-        debugPrint('[FCM] Token actualizado: $token');
+      if (token == null) return;
+
+      // Resolver el ID real del documento si la app arrancó ya autenticada (sin pasar por login).
+      if (driverDocId == null) {
+        final phone = user.phoneNumber ?? '';
+        if (phone.isNotEmpty) {
+          final q = await FirebaseFirestore.instance
+              .collection('drivers')
+              .where('fullphone', isEqualTo: phone)
+              .limit(1)
+              .get();
+          if (q.docs.isNotEmpty) driverDocId = q.docs.first.id;
+        }
       }
+
+      if (driverDocId == null) {
+        debugPrint('[FCM] No se pudo resolver driverDocId — token no actualizado');
+        return;
+      }
+
+      await FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(driverDocId)
+          .update({'fcmToken': token});
+      debugPrint('[FCM] Token actualizado en doc $driverDocId');
     } catch (e) {
       debugPrint('[FCM] Error actualizando token: $e');
     }

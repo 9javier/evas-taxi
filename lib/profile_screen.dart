@@ -149,7 +149,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (activeTravelId != null && activeTravelId.isNotEmpty) {
         if (isInProgress) {
-          await FirebaseActionService.completeTravel(activeTravelId, user.uid);
+          await FirebaseActionService.completeTravel(activeTravelId, driverDocId ?? user.uid);
         } else {
           await FirebaseActionService.cancellOperationTravelTask(activeTravelId);
         }
@@ -161,7 +161,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       await FirebaseFirestore.instance
           .collection('drivers')
-          .doc(user.uid)
+          .doc(driverDocId ?? user.uid)
           .update({
             'activeTripsCount': 0,
             'currentTravelId': FieldValue.delete(),
@@ -198,7 +198,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final info = await getCurrentDriverInfo();
       if (info != null && mounted) {
         _nameController.text  = (info['name'] ?? info['displayName'] ?? '') as String;
-        _phoneController.text = (info['fullPhone'] ?? '') as String;
+        _phoneController.text = (info['fullphone'] ?? '') as String;
         final dynamic img = info['imageUrl'] ?? info['photoURL'] ?? info['avatar'];
         _avatarUrl = (img is String && img.isNotEmpty) ? img : null;
         _parseVehicles(info['vehicles']);
@@ -217,7 +217,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final info = await getCurrentDriverInfo();
       if (info != null && mounted) {
         _nameController.text  = (info['name'] ?? info['displayName'] ?? '') as String;
-        _phoneController.text = (info['fullPhone'] ?? '') as String;
+        _phoneController.text = (info['fullphone'] ?? '') as String;
         final dynamic img = info['imageUrl'] ?? info['photoURL'] ?? info['avatar'];
         _avatarUrl = (img is String && img.isNotEmpty) ? img : null;
         _parseVehicles(info['vehicles']);
@@ -263,9 +263,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         data['on'] = (entry.key == plate);
         updated[entry.key] = data;
       }
+      final docId = driverDocId ?? user.uid;
       await FirebaseFirestore.instance
           .collection('drivers')
-          .doc(user.uid)
+          .doc(docId)
           .update({'vehicles': updated});
 
       _vehicles    = updated.map<String, Map<String, dynamic>>((k, v) => MapEntry(k, Map<String, dynamic>.from(v as Map)));
@@ -282,7 +283,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       // Persistir en caché local
       try {
-        final doc  = await FirebaseFirestore.instance.collection('drivers').doc(user.uid).get();
+        final doc  = await FirebaseFirestore.instance.collection('drivers').doc(docId).get();
         final data = doc.data() ?? <String, dynamic>{};
         await LocalDb.instance.saveDriver({'uid': user.uid, 'phone': user.phoneNumber, ...data});
       } catch (_) {}
@@ -723,10 +724,12 @@ Future<Map<String, dynamic>?> getCurrentDriverInfo() async {
   final user = FirebaseAuth.instance.currentUser;
   if (user == null) return null;
 
-  // Intentar leer de la base de datos local primero
+  // Intentar leer de la base de datos local primero.
+  // Si los campos esenciales están vacíos, ignorar el caché (puede estar obsoleto).
   try {
     final cached = await LocalDb.instance.getDriver(user.uid);
-    if (cached != null) {
+    final cachedName = (cached?['name'] ?? cached?['displayName'] ?? '').toString();
+    if (cached != null && cachedName.isNotEmpty) {
       return {
         'uid':      user.uid,
         'phone':    user.phoneNumber,
@@ -734,13 +737,28 @@ Future<Map<String, dynamic>?> getCurrentDriverInfo() async {
         ...cached,
       };
     }
-  } catch (e) {
-    // Ignorar error de caché y proceder a Firestore
+  } catch (_) {}
+
+  // Resolver el ID real del documento si aún no está en memoria
+  if (driverDocId == null) {
+    final phone = user.phoneNumber ?? '';
+    if (phone.isNotEmpty) {
+      try {
+        final q = await FirebaseFirestore.instance
+            .collection('drivers')
+            .where('fullphone', isEqualTo: phone)
+            .limit(1)
+            .get();
+        if (q.docs.isNotEmpty) driverDocId = q.docs.first.id;
+      } catch (_) {}
+    }
   }
 
-  // Si no hay caché, consultar Firestore y guardar en SQLite
+  final docId = driverDocId ?? user.uid;
+
+  // Consultar Firestore con el ID real y guardar en caché local
   try {
-    final doc  = await FirebaseFirestore.instance.collection('drivers').doc(user.uid).get();
+    final doc  = await FirebaseFirestore.instance.collection('drivers').doc(docId).get();
     final data = doc.data() ?? <String, dynamic>{};
     final result = {
       'uid':      user.uid,
@@ -748,7 +766,7 @@ Future<Map<String, dynamic>?> getCurrentDriverInfo() async {
       'vehicles': data['vehicles'],
       ...data,
     };
-    try { await LocalDb.instance.saveDriver(result); } catch (e) {}
+    try { await LocalDb.instance.saveDriver(result); } catch (_) {}
     return result;
   } catch (e) {
     return null;

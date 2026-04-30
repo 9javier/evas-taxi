@@ -97,7 +97,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
 
           final query = await FirebaseFirestore.instance
               .collection('drivers')
-              .where('fullPhone', isEqualTo: fullPhone)
+              .where('fullphone', isEqualTo: fullPhone)
               .limit(1)
               .get();
 

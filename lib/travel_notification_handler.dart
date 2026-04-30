@@ -39,7 +39,7 @@ Future<void> _handleSlideAccept(BuildContext context, String travelId) async {
   }
 
   try {
-    final accepted = await FirebaseActionService.acceptTravel(travelId, user.uid);
+    final accepted = await FirebaseActionService.acceptTravel(travelId, driverDocId ?? user.uid);
     if (accepted) {
       final prev = activeTravelIdNotifier.value;
       activeTravelIdNotifier.value = travelId;
@@ -75,7 +75,7 @@ Future<void> _handleSlideQueue(BuildContext context, String travelId) async {
   }
 
   try {
-    final accepted = await FirebaseActionService.acceptTravel(travelId, user.uid, queueMode: true);
+    final accepted = await FirebaseActionService.acceptTravel(travelId, driverDocId ?? user.uid, queueMode: true);
     if (accepted) {
       pendingTravelIdNotifier.value = travelId;
       tabsIndexNotifier.value = 0;
@@ -96,7 +96,7 @@ Future<void> notifyDriverArrived() async {
   final user = FirebaseAuth.instance.currentUser;
   if (travelId == null || user == null) return;
   try {
-    await FirebaseActionService.notifyDriverArrived(travelId, user.uid);
+    await FirebaseActionService.notifyDriverArrived(travelId, driverDocId ?? user.uid);
   } catch (_) {}
 }
 

@@ -28,3 +28,8 @@ final ValueNotifier<bool> driverReleasedNotifier = ValueNotifier<bool>(false);
 // Se activa durante el flujo OTP para evitar que la app vaya a WelcomeScreen antes de
 // verificar que el número de teléfono corresponde a un conductor registrado.
 bool skipAuthNavigation = false;
+
+// ID real del documento del conductor en la colección 'drivers'.
+// No siempre coincide con el Firebase Auth UID (el admin puede haberlo creado con otro ID).
+// Se resuelve por query de fullphone al hacer login o al arrancar la app.
+String? driverDocId;

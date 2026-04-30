@@ -122,7 +122,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
     // Buscar el conductor por fullPhone (código de país + número local concatenados).
     final query = await FirebaseFirestore.instance
         .collection('drivers')
-        .where('fullPhone', isEqualTo: widget.phoneNumber)
+        .where('fullphone', isEqualTo: widget.phoneNumber)
         .limit(1)
         .get();
 
@@ -134,6 +134,9 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       await _showDriverNotFoundDialog();
       return;
     }
+
+    // Guardar el ID real del documento para usarlo en toda la sesión.
+    driverDocId = query.docs.first.id;
 
     // Conductor encontrado — actualizar token FCM y entrar.
     final fcmToken = await FirebaseMessaging.instance.getToken();

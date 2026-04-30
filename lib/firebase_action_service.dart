@@ -129,7 +129,7 @@ class FirebaseActionService {
       final resp = await http
           .post(Uri.parse(Env.updateTravelStatusUrl),
               headers: {'Content-Type': 'application/json'},
-              body: jsonEncode({'travelId': travelId, 'status': status}))
+              body: jsonEncode({'travelId': travelId, 'newStatus': status}))
           .timeout(const Duration(seconds: 8));
       return resp.statusCode == 200;
     } catch (e) {
