@@ -7,7 +7,10 @@
       "Bash(dart --version)",
       "Bash(timeout 75 tail -f \"C:\\\\Users\\\\Dell\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Dell-StudioProjects-evas-taxi-driver\\\\f795c0bc-19d8-4286-a85c-ce674ec3f941\\\\tasks\\\\bgqfz8bh9.output\")",
       "Bash(timeout 170 tail:*)",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(rm logo2.jpeg fondo.jpeg fondo2.jpeg fondo3.jpeg fondo4.jpeg fondo5.jpeg)",
+      "Bash(ls *.jpeg *.png *.jpg *.svg)",
+      "Bash(dart run *)"
     ]
   }
 }
