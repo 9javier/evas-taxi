@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import 'package:flutter/services.dart' show rootBundle;
-import 'package:geolocator/geolocator.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'main_tabs_screen.dart';
 import 'travel_notification_handler.dart';
 import 'notification_guard.dart';
 import 'notification_center.dart';
+import 'permission_helper.dart';
 
 class WelcomeScreen extends StatefulWidget {
   final String phoneNumber;
@@ -21,8 +21,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   bool _ready = false;
   bool _error = false;
   String _status = 'Inicializando...';
-  bool _permissionDenied = false;
-  bool _permissionPermanentlyDenied = false;
 
   // Solo manejamos getInitialMessage aquí (app terminada).
   // Los listeners onMessage y onMessageOpenedApp viven en main.dart para evitar duplicados.
@@ -75,8 +73,11 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     });
 
     try {
-      // Primero solicitar/confirmar permisos de ubicación
-      await _ensureLocationPermission();
+      // Verificar internet y luego permisos de ubicación
+      await checkInternetAndShow(context);
+      if (!mounted) return;
+      await checkAndRequestLocationPermission(context);
+      if (!mounted) return;
 
       final tasks = <Future<void>>[];
 
@@ -122,141 +123,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       } catch (_) {}
     } catch (_) {
       // Ignorar errores de warmup
-    }
-  }
-
-  Future<void> _ensureLocationPermission() async {
-    try {
-      setState(() => _status = 'Comprobando permiso de ubicación...');
-
-      // Si el servicio de ubicación del dispositivo está deshabilitado, avisar y abrir ajustes del sistema
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        if (!mounted) return;
-        final open = await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) {
-            return AlertDialog(
-              title: const Text('Servicio de ubicación desactivado'),
-              content: const Text('El servicio de ubicación del dispositivo está desactivado. ¿Quieres abrir la configuración para activarlo?'),
-              actions: [
-                TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancelar')),
-                TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Abrir ajustes')),
-              ],
-            );
-          },
-        );
-        if (open == true) {
-          await Geolocator.openLocationSettings();
-          await Future.delayed(const Duration(milliseconds: 600));
-          serviceEnabled = await Geolocator.isLocationServiceEnabled();
-        }
-      }
-
-      // Comprobar permiso actual
-      LocationPermission permission = await Geolocator.checkPermission();
-
-      if (permission == LocationPermission.denied) {
-        if (!mounted) return;
-        // Mostrar diálogo propio antes de la petición del sistema para mejorar la UX
-        final allow = await showDialog<bool>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) {
-            return AlertDialog(
-              title: const Text('Permiso de ubicación'),
-              content: const Text('La aplicación necesita acceder a tu ubicación para mostrar viajes y mapas correctamente. ¿Deseas permitirlo?'),
-              actions: [
-                TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('No')),
-                TextButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Sí')),
-              ],
-            );
-          },
-        );
-
-        if (allow == true) {
-          // Llamada al permiso del sistema
-          permission = await Geolocator.requestPermission();
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        if (!mounted) return;
-        setState(() => _status = 'Permiso denegado permanentemente');
-        // Dialogo para abrir ajustes de la app
-        await showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) {
-            return AlertDialog(
-              title: const Text('Permiso denegado permanentemente'),
-              content: const Text('El permiso de ubicación fue denegado permanentemente. Abre los ajustes de la aplicación para activarlo.'),
-              actions: [
-                TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cerrar')),
-                TextButton(onPressed: () async { Navigator.of(context).pop(); await Geolocator.openAppSettings(); }, child: const Text('Abrir ajustes')),
-              ],
-            );
-          },
-        );
-        await Future.delayed(const Duration(milliseconds: 600));
-      }
-
-      // Actualizar banderas de estado para mostrar botones si es necesario
-      if (!mounted) return;
-      final finalPerm = await Geolocator.checkPermission();
-      if (finalPerm == LocationPermission.always || finalPerm == LocationPermission.whileInUse) {
-        setState(() {
-          _status = 'Permiso de ubicación concedido';
-          _permissionDenied = false;
-          _permissionPermanentlyDenied = false;
-        });
-      } else if (finalPerm == LocationPermission.deniedForever) {
-        setState(() {
-          _status = 'Permiso denegado permanentemente';
-          _permissionDenied = false;
-          _permissionPermanentlyDenied = true;
-        });
-      } else {
-        setState(() {
-          _status = 'Permiso de ubicación no concedido';
-          _permissionDenied = true;
-          _permissionPermanentlyDenied = false;
-        });
-      }
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _status = 'Error comprobando permisos');
-    }
-  }
-
-  Future<void> _requestPermissionFromUser() async {
-    try {
-      setState(() => _status = 'Solicitando permiso...');
-      final permission = await Geolocator.requestPermission();
-      if (!mounted) return;
-      if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
-        setState(() {
-          _status = 'Permiso concedido';
-          _permissionDenied = false;
-          _permissionPermanentlyDenied = false;
-        });
-      } else if (permission == LocationPermission.deniedForever) {
-        setState(() {
-          _status = 'Permiso denegado permanentemente';
-          _permissionDenied = false;
-          _permissionPermanentlyDenied = true;
-        });
-      } else {
-        setState(() {
-          _status = 'Permiso denegado';
-          _permissionDenied = true;
-          _permissionPermanentlyDenied = false;
-        });
-      }
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _status = 'Error al solicitar permiso');
     }
   }
 
@@ -319,24 +185,6 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                       ],
                     ),
                     const SizedBox(height: 12),
-                    if (_permissionDenied)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8.0),
-                        child: ElevatedButton(
-                          onPressed: _requestPermissionFromUser,
-                          child: const Text('Permitir ubicación'),
-                        ),
-                      ),
-                    if (_permissionPermanentlyDenied)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8.0),
-                        child: ElevatedButton(
-                          onPressed: () async {
-                            await Geolocator.openAppSettings();
-                          },
-                          child: const Text('Abrir ajustes'),
-                        ),
-                      ),
                   ],
                 ),
               ),
