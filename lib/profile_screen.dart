@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'app_state.dart';
 import 'firebase_action_service.dart';
 import 'local_db.dart';
@@ -631,16 +632,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 // Icono de taxi
                 Container(
-                  width: 42, height: 42,
+                  width: 74, height: 74,
                   decoration: BoxDecoration(
                     color: isActive ? _pgAccent.withOpacity(0.15) : _pgBg,
-                    borderRadius: BorderRadius.circular(11),
+                    borderRadius: BorderRadius.circular(13),
                   ),
-                  child: Icon(
-                    Icons.local_taxi_rounded,
-                    color: isActive ? _pgAccent : _pgTextMuted,
-                    size: 21,
-                  ),
+                  child: _vehicleIcon(color),
                 ),
                 const SizedBox(width: 14),
 
@@ -701,6 +698,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       );
     }).toList();
+  }
+
+  Widget _vehicleIcon(String color) {
+    if (color.isEmpty) {
+      return const Icon(Icons.local_taxi_rounded, color: _pgTextMuted, size: 21);
+    }
+    return Padding(
+      padding: const EdgeInsets.all(6),
+      child: SvgPicture.asset(
+        'assets/vehicles/$color.svg',
+        width: 65,
+        height: 65,
+        placeholderBuilder: (_) =>
+            const Icon(Icons.local_taxi_rounded, color: _pgTextMuted, size: 26),
+      ),
+    );
   }
 
   Widget _buildEmptyVehicles() {
