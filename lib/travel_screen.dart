@@ -17,6 +17,7 @@ import 'driver_location_service.dart';
 import 'firebase_action_service.dart';
 import 'travel_notification_handler.dart';
 import 'package:flutter/rendering.dart';
+import 'chat_service.dart';
 
 // ── Paleta Dark Premium (alineada con el popup de solicitud de viaje) ────────
 const Color _tsCardBg    = Color(0xFF1E1E26);
@@ -114,6 +115,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   bool _programmaticCameraMove = false;
   static const int _userInteractionPauseSecs = 12;
   bool _refreshing = false; // bloquea doble-tap en botón refresh
+  bool _hasNewChatMessage = false;
 
   // Nombre del pasajero del viaje en cola (se carga cuando pendingTravelIdNotifier cambia)
   String _pendingPassengerName = '';
@@ -143,6 +145,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     pendingTravelIdNotifier.addListener(_onPendingTravelChanged);
     passengerCanceledNotifier.addListener(_onPassengerCanceled);
     driverReleasedNotifier.addListener(_onDriverReleased);
+    chatNewMessageNotifier.addListener(_onChatNewMessage);
     // Cargar nombre del viaje en cola si ya existe al iniciar
     if (pendingTravelIdNotifier.value != null && pendingTravelIdNotifier.value!.isNotEmpty) {
       _loadPendingTravelName(pendingTravelIdNotifier.value!);
@@ -289,6 +292,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     pendingTravelIdNotifier.removeListener(_onPendingTravelChanged);
     passengerCanceledNotifier.removeListener(_onPassengerCanceled);
     driverReleasedNotifier.removeListener(_onDriverReleased);
+    chatNewMessageNotifier.removeListener(_onChatNewMessage);
     tabsIndexNotifier.removeListener(_onTabChanged);
     _pendingCheckTimer?.cancel();
     // Detener servicio de ubicación al cerrar la pantalla
@@ -676,6 +680,12 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     passengerCanceledNotifier.value = null;
     _showPassengerCanceledDialog();
     _endTrip();
+  }
+
+  void _onChatNewMessage() {
+    if (!chatNewMessageNotifier.value) return;
+    chatNewMessageNotifier.value = false;
+    _safeSetState(() => _hasNewChatMessage = true);
   }
 
   Future<void> _showPassengerCanceledDialog() async {
@@ -1529,6 +1539,42 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                       ],
                     ),
                   ),
+                  // Botón de chat
+                  GestureDetector(
+                    onTap: _showChatBottomSheet,
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            color: _tsSurface,
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.chat_bubble_outline_rounded,
+                            size: 18,
+                            color: _tsTextMuted,
+                          ),
+                        ),
+                        if (_hasNewChatMessage)
+                          Positioned(
+                            top: -2,
+                            right: -2,
+                            child: Container(
+                              width: 10,
+                              height: 10,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFEF4444),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   // Botón expandir / colapsar
                   GestureDetector(
                     onTap: hideOrExpand,
@@ -1664,6 +1710,22 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     setState(() => _sheetExpanded = !_sheetExpanded);
     hidePassengerMarker();
     _updateMapPadding();
+  }
+
+  void _showChatBottomSheet() {
+    final travelId = widget.travelId ?? activeTravelIdNotifier.value ?? '';
+    final driverId = _driverId ?? '';
+    if (travelId.isEmpty || driverId.isEmpty) return;
+    setState(() => _hasNewChatMessage = false);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SizedBox(
+        height: MediaQuery.of(context).size.height * 0.75,
+        child: _DriverChatSheet(travelId: travelId, currentUserId: driverId),
+      ),
+    );
   }
 
   /// Retorna true si la ubicación actual del conductor está a <= [thresholdMeters] del pasajero.
@@ -2617,6 +2679,322 @@ class _CustomSlideActionState extends State<CustomSlideAction> with SingleTicker
         ),
       );
     }
+    );
+  }
+}
+
+// ── Driver Chat Sheet ──────────────────────────────────────────────────────
+
+class _DriverChatSheet extends StatefulWidget {
+  final String travelId;
+  final String currentUserId;
+
+  const _DriverChatSheet(
+      {required this.travelId, required this.currentUserId});
+
+  @override
+  State<_DriverChatSheet> createState() => _DriverChatSheetState();
+}
+
+class _DriverChatSheetState extends State<_DriverChatSheet> {
+  final _textController = TextEditingController();
+  bool _sending = false;
+
+  static const Color _bg             = Color(0xFF1E1E26);
+  static const Color _surface        = Color(0xFF2A2A34);
+  static const Color _accent         = Color(0xFF6366F1);
+  static const Color _receivedBubble = Color(0xFF1E3A54); // azul navy para mensajes del pasajero
+  static const Color _textMain       = Colors.white;
+  static const Color _textMuted      = Color(0xFFA0A0AB);
+  static const Color _divider        = Color(0xFF3F3F46);
+
+  static const List<String> _quickReplies = [
+    "On my way",
+    "I've arrived",
+    "Be right there",
+    "Ok",
+    "Wait a moment",
+  ];
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send(String text) async {
+    if (text.trim().isEmpty || _sending) return;
+    setState(() => _sending = true);
+    _textController.clear();
+    try {
+      debugPrint('[Chat] Enviando → travelId=${widget.travelId} uid=${widget.currentUserId} text="$text"');
+      await ChatService.sendMessage(widget.travelId, text);
+      debugPrint('[Chat] Enviado OK');
+    } catch (e, st) {
+      debugPrint('[Chat] ERROR al enviar: $e\n$st');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not send message: $e'),
+            backgroundColor: const Color(0xFFEF4444),
+          ),
+        );
+        _textController.text = text;
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: _bg,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        children: [
+          // Handle
+          Padding(
+            padding: const EdgeInsets.only(top: 10, bottom: 4),
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: _divider,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          // Encabezado
+          const Padding(
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 10),
+            child: Row(
+              children: [
+                Icon(Icons.chat_bubble_outline_rounded,
+                    color: _accent, size: 18),
+                SizedBox(width: 8),
+                Text(
+                  'Trip Chat',
+                  style: TextStyle(
+                    color: _textMain,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(height: 1, color: _divider),
+          // Lista de mensajes
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: ChatService.messagesStream(widget.travelId),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  debugPrint('[Chat] StreamBuilder error: ${snapshot.error}');
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        'Could not load messages.\n${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            color: Color(0xFFEF4444),
+                            fontSize: 12,
+                            height: 1.6),
+                      ),
+                    ),
+                  );
+                }
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(_accent),
+                    ),
+                  );
+                }
+                final docs = snapshot.data?.docs ?? [];
+                if (docs.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      'No messages yet.\nSend a message to your passenger.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: _textMuted, fontSize: 14, height: 1.7),
+                    ),
+                  );
+                }
+                return ListView.builder(
+                  reverse: true,
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 12),
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final msg        = docs[index].data();
+                    final senderType = msg['senderType'] as int?;
+                    // senderType 2 = driver (yo), 1 = pasajero
+                    // Fallback a senderId si el campo aún no está escrito
+                    final isMe = senderType != null
+                        ? senderType == 2
+                        : msg['senderId'] == widget.currentUserId;
+                    return _buildBubble(
+                        msg['text'] as String? ?? '', isMe);
+                  },
+                );
+              },
+            ),
+          ),
+          // Respuestas rápidas
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Row(
+              children: _quickReplies
+                  .map((r) => Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: GestureDetector(
+                          onTap: () => _send(r),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 7),
+                            decoration: BoxDecoration(
+                              color: _surface,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                  color: _accent.withValues(alpha: 0.35)),
+                            ),
+                            child: Text(
+                              r,
+                              style: const TextStyle(
+                                color: _accent,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ))
+                  .toList(),
+            ),
+          ),
+          // Input
+          Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 12,
+              top: 6,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: _surface,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: _divider),
+                    ),
+                    child: TextField(
+                      controller: _textController,
+                      style: const TextStyle(
+                          color: _textMain, fontSize: 14),
+                      maxLines: null,
+                      keyboardType: TextInputType.multiline,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: _send,
+                      decoration: const InputDecoration(
+                        hintText: 'Message...',
+                        hintStyle: TextStyle(color: _textMuted),
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => _send(_textController.text),
+                  child: Container(
+                    width: 44,
+                    height: 44,
+                    decoration: const BoxDecoration(
+                      color: _accent,
+                      shape: BoxShape.circle,
+                    ),
+                    child: _sending
+                        ? const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white),
+                            ),
+                          )
+                        : const Icon(Icons.send_rounded,
+                            color: Colors.white, size: 20),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBubble(String text, bool isMe) {
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment:
+            isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 4, right: 4, bottom: 2),
+            child: Text(
+              isMe ? 'You' : 'Passenger',
+              style: TextStyle(
+                color: isMe
+                    ? _accent.withValues(alpha: 0.7)
+                    : _textMuted,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ),
+          Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            constraints: BoxConstraints(
+                maxWidth: MediaQuery.of(context).size.width * 0.72),
+            decoration: BoxDecoration(
+              color: isMe ? _accent : _receivedBubble,
+              borderRadius: BorderRadius.only(
+                topLeft: const Radius.circular(16),
+                topRight: const Radius.circular(16),
+                bottomLeft: Radius.circular(isMe ? 16 : 4),
+                bottomRight: Radius.circular(isMe ? 4 : 16),
+              ),
+              border: isMe
+                  ? null
+                  : Border.all(color: const Color(0xFF2A5080), width: 0.8),
+            ),
+            child: Text(
+              text,
+              style: TextStyle(
+                color: isMe ? Colors.white : _textMain,
+                fontSize: 14,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

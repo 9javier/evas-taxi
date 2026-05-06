@@ -130,6 +130,8 @@ Future<void> main() async {
       final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
       playAlertSound();
       passengerCanceledNotifier.value = travelId;
+    } else if (type == 'CHAT') {
+      chatNewMessageNotifier.value = true;
     }
   });
 
@@ -148,6 +150,8 @@ Future<void> main() async {
       final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
       playAlertSound();
       passengerCanceledNotifier.value = travelId;
+    } else if (type == 'CHAT') {
+      chatNewMessageNotifier.value = true;
     }
   });
 
