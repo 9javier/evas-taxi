@@ -61,6 +61,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   String? _driverId;
   final _driverLocationService = DriverLocationService();
   StreamSubscription<Position>? _positionSubscription;
+  StreamSubscription<DocumentSnapshot>? _onlineStatusSub;
+  bool? _isOnline;
   DateTime? _lastRouteUpdatedAt;
   DateTime? _lastCameraUpdatedAt;
   Position? _currentPosition;
@@ -183,6 +185,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       _driverId = driverDocId;
       _driverLocationService.start(driverId: _driverId!, distanceFilter: 20, minIntervalSeconds: 10);
       _loadActiveVehicle();
+      _subscribeOnlineStatus();
     } else {
       // App reiniciada sin pasar por login — resolver el ID por query antes de iniciar.
       _resolveDriverIdAndStart(user);
@@ -298,6 +301,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     chatNewMessageNotifier.removeListener(_onChatNewMessage);
     tabsIndexNotifier.removeListener(_onTabChanged);
     _pendingCheckTimer?.cancel();
+    _onlineStatusSub?.cancel();
     // Detener servicio de ubicación al cerrar la pantalla
     _driverLocationService.stop();
     _positionSubscription?.cancel();
@@ -1354,6 +1358,13 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             child: Center(child: _buildDistancePill()),
           ),
 
+        // Indicador online/offline — esquina superior izquierda
+        Positioned(
+          top: MediaQuery.of(context).padding.top + 10,
+          left: 14,
+          child: _buildOnlineStatusBadge(),
+        ),
+
         // Chip de viaje en cola — debajo del pill de distancia
         if (pendingTravelIdNotifier.value != null && pendingTravelIdNotifier.value!.isNotEmpty)
           Positioned(
@@ -2061,7 +2072,24 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     if (mounted) {
       _driverLocationService.start(driverId: _driverId!, distanceFilter: 20, minIntervalSeconds: 10);
       _loadActiveVehicle();
+      _subscribeOnlineStatus();
     }
+  }
+
+  void _subscribeOnlineStatus() {
+    if (_driverId == null || _driverId!.isEmpty) return;
+    _onlineStatusSub?.cancel();
+    _onlineStatusSub = FirebaseFirestore.instance
+        .collection('drivers')
+        .doc(_driverId)
+        .snapshots()
+        .listen((snap) {
+      if (!mounted) return;
+      final online = snap.data()?['isOnline'] as bool?;
+      if (online != _isOnline) {
+        _safeSetState(() => _isOnline = online);
+      }
+    });
   }
 
   /// Intenta obtener la ubicación actual del dispositivo, solicitando permisos si es necesario.
@@ -2371,6 +2399,29 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           Text(label, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
         ],
       ),
+    );
+  }
+
+  /// Indicador circular de estado online/offline del conductor.
+  Widget _buildOnlineStatusBadge() {
+    final online = _isOnline ?? false;
+    final color = online ? const Color(0xFF22C55E) : const Color(0xFFEF4444);
+    final label = online ? 'Available' : 'Offline';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            boxShadow: [BoxShadow(color: color.withOpacity(0.5), blurRadius: 6, spreadRadius: 1)],
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(label, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w600)),
+      ],
     );
   }
 
