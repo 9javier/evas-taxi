@@ -611,7 +611,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final color    = (v['color'] ?? '') as String;
       final plate    = (v['plate'] ?? entry.key) as String;
       final title    = [brand, model].where((s) => s.isNotEmpty).join(' ');
-      final subtitle = [year, color].where((s) => s.isNotEmpty).join(' · ');
+      final subtitle = [year].where((s) => s.isNotEmpty).join(' · ');
 
       return Padding(
         padding: const EdgeInsets.only(bottom: 10),

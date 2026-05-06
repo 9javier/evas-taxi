@@ -12,7 +12,7 @@
     <!-- Permite mostrar notificaciones en pantalla de bloqueo (cabecera/heads-up) -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <application
-        android:label="evas_taxi_driver"
+        android:label="Eva's Driver"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
