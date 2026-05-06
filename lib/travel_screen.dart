@@ -2201,10 +2201,35 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       if (target != null) {
         await _prepareRouteOnMap(_driverLatLng, target);
       }
+
+      // 5. Safety net: si isOnline quedó en false por algún fallo, corregirlo
+      await _ensureOnline();
     } catch (e) {
       debugPrint('_refresh error: $e');
     } finally {
       if (mounted) _safeSetState(() => _refreshing = false);
+    }
+  }
+
+  /// Verifica si isOnline está en false y lo corrige a true.
+  /// Se llama desde _refresh() como safety net ante fallos del sistema de presencia.
+  Future<void> _ensureOnline() async {
+    final docId = _driverId ?? driverDocId;
+    if (docId == null) return;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('drivers')
+          .doc(docId)
+          .get();
+      if (snap.data()?['isOnline'] == false) {
+        await FirebaseFirestore.instance
+            .collection('drivers')
+            .doc(docId)
+            .update({'isOnline': true});
+        debugPrint('[Presence] isOnline corregido a true vía refresh');
+      }
+    } catch (e) {
+      debugPrint('[Presence] _ensureOnline error: $e');
     }
   }
 

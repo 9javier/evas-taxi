@@ -1343,3 +1343,26 @@ export const claimPendingBackgroundMessage = functions
       res.status(500).json({ error: e.message });
     }
   });
+
+// ---------------------------------------------------------------------------
+// Presencia RTDB → Firestore
+// Escucha presence/{driverId} en RTDB. Cuando el valor cambia a false
+// (driver desconectado) actualiza isOnline: false en Firestore.
+// La función no actúa cuando el valor pasa a true para no interferir
+// con la lógica de activación manual del conductor en la app.
+// ---------------------------------------------------------------------------
+export const syncDriverPresence = functions
+  .region(REGION)
+  .database
+  .ref('presence/{driverId}')
+  .onUpdate(async (change, context) => {
+    const isOnline: boolean = change.after.val() === true;
+    const driverId: string = context.params.driverId;
+    try {
+      await db.collection('drivers').doc(driverId).update({ isOnline });
+      console.log(`syncDriverPresence: driver ${driverId} → isOnline=${isOnline}`);
+    } catch (e) {
+      console.error(`syncDriverPresence: error actualizando driver ${driverId}`, e);
+    }
+    return null;
+  });

@@ -10,7 +10,8 @@
       "Bash(echo \"EXIT:$?\")",
       "Bash(rm logo2.jpeg fondo.jpeg fondo2.jpeg fondo3.jpeg fondo4.jpeg fondo5.jpeg)",
       "Bash(ls *.jpeg *.png *.jpg *.svg)",
-      "Bash(dart run *)"
+      "Bash(dart run *)",
+      "Bash(powershell -command \"\\(Get-Content assets/index.ts\\).Count\")"
     ]
   }
 }

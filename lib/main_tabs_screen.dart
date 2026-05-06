@@ -8,6 +8,7 @@ import 'app_state.dart';
 import 'notification_center.dart';
 import 'notification_guard.dart';
 import 'travel_notification_handler.dart';
+import 'driver_presence_service.dart';
 
 const Color _onTripAccent = Colors.orange; // color principal cuando está en viaje
 
@@ -64,6 +65,8 @@ class _MainTabsScreenState extends State<MainTabsScreen> with WidgetsBindingObse
           .doc(driverDocId)
           .update({'fcmToken': token});
       debugPrint('[FCM] Token actualizado en doc $driverDocId');
+      // Iniciar presencia RTDB una vez que driverDocId está confirmado
+      await DriverPresenceService.instance.start(driverDocId!);
     } catch (e) {
       debugPrint('[FCM] Error actualizando token: $e');
     }
@@ -72,6 +75,7 @@ class _MainTabsScreenState extends State<MainTabsScreen> with WidgetsBindingObse
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    DriverPresenceService.instance.stop(); // fire-and-forget: RTDB también lo maneja con onDisconnect
     super.dispose();
   }
 
