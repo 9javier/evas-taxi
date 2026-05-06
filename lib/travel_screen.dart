@@ -17,6 +17,8 @@ import 'driver_location_service.dart';
 import 'firebase_action_service.dart';
 import 'travel_notification_handler.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:url_launcher/url_launcher.dart';
 import 'chat_service.dart';
 
 // ── Paleta Dark Premium (alineada con el popup de solicitud de viaje) ────────
@@ -71,6 +73,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   LatLng? _destinationLatLng;
   LatLng? _passengerLatLng;
   String _passengerName = 'Pasajero';
+  String _passengerPhone = '';
   BitmapDescriptor? _passengerIcon;
   BitmapDescriptor? _driverIcon;
   BitmapDescriptor? _destinationIcon;
@@ -901,7 +904,11 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           if (userDoc.exists) {
             final ud = userDoc.data() ?? {};
             final name = (ud['name'] ?? ud['nombre'] ?? ud['displayName'] ?? '').toString().trim();
-            if (name.isNotEmpty && mounted) _safeSetState(() => _passengerName = name);
+            final phone = (ud['phone'] ?? '').toString().trim();
+            if (mounted) _safeSetState(() {
+              if (name.isNotEmpty) _passengerName = name;
+              _passengerPhone = phone;
+            });
           }
         } catch (_) {}
       }
@@ -1539,6 +1546,26 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                       ],
                     ),
                   ),
+                  // Botón de teléfono
+                  if (_passengerPhone.isNotEmpty) ...[
+                    GestureDetector(
+                      onTap: _showPhoneOptions,
+                      child: Container(
+                        width: 34,
+                        height: 34,
+                        decoration: const BoxDecoration(
+                          color: _tsSurface,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.phone_outlined,
+                          size: 18,
+                          color: _tsTextMuted,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   // Botón de chat
                   GestureDetector(
                     onTap: _showChatBottomSheet,
@@ -1712,6 +1739,104 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     _updateMapPadding();
   }
 
+  void _showPhoneOptions() {
+    final phone = _passengerPhone;
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: _tsCardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36, height: 4,
+                  decoration: BoxDecoration(color: _tsSurface, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                phone,
+                style: const TextStyle(color: _tsTextMain, fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _passengerName,
+                style: const TextStyle(color: _tsTextMuted, fontSize: 13),
+              ),
+              const SizedBox(height: 20),
+              _phoneOption(
+                icon: Icons.call_rounded,
+                label: 'Call passenger',
+                color: const Color(0xFF4CAF50),
+                onTap: () async {
+                  Navigator.pop(context);
+                  final uri = Uri(scheme: 'tel', path: phone);
+                  if (await canLaunchUrl(uri)) await launchUrl(uri);
+                },
+              ),
+              const SizedBox(height: 10),
+              _phoneOption(
+                icon: Icons.copy_rounded,
+                label: 'Copy number',
+                color: _tsAccent,
+                onTap: () {
+                  Navigator.pop(context);
+                  Clipboard.setData(ClipboardData(text: phone));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Number copied'),
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _phoneOption({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: _tsSurface,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 18),
+            ),
+            const SizedBox(width: 14),
+            Text(label, style: const TextStyle(color: _tsTextMain, fontSize: 15, fontWeight: FontWeight.w500)),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showChatBottomSheet() {
     final travelId = widget.travelId ?? activeTravelIdNotifier.value ?? '';
     final driverId = _driverId ?? '';
@@ -1750,6 +1875,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       _dropoffLatLng = null;
       _passengerPickedUp = false;
       _passengerName = 'Passenger'; // reset name for the next trip
+      _passengerPhone = '';
       _pendingPassengerName = '';
       _notifiedDriverNear = false;
       _notifiedDriverArrived = false;
