@@ -88,7 +88,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
     if (_loading || _autoVerifying) return;
     final otp = _otp;
     if (otp.length < 6) {
-      setState(() => _error = 'Ingresa los 6 dígitos del código');
+      setState(() => _error = 'Enter all 6 digits of the code');
       return;
     }
     setState(() { _loading = true; _error = ''; });
@@ -112,7 +112,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
     } catch (_) {
       skipAuthNavigation = false;
       if (!mounted) return;
-      setState(() { _loading = false; _error = 'Error inesperado. Intenta de nuevo'; });
+      setState(() { _loading = false; _error = 'Unexpected error. Try again'; });
     }
   }
 
@@ -166,14 +166,14 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
             SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Conductor no encontrado',
+                'Driver not found',
                 style: TextStyle(color: _kText, fontSize: 16, fontWeight: FontWeight.w700),
               ),
             ),
           ],
         ),
         content: const Text(
-          'No existe ningún conductor registrado con este número de teléfono.\n\nPor favor usa otro número o contacta al administrador.',
+          'No driver is registered with this phone number.\n\nPlease use a different number or contact the administrator.',
           style: TextStyle(color: _kHint, fontSize: 13, height: 1.5),
         ),
         actions: [
@@ -207,7 +207,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       verificationCompleted: (_) {},
       verificationFailed: (e) {
         if (!mounted) return;
-        setState(() { _loading = false; _error = 'Error al reenviar el código. Intenta de nuevo'; });
+        setState(() { _loading = false; _error = 'Error resending the code. Try again'; });
       },
       codeSent: (String verificationId, int? resendToken) {
         if (!mounted) return;
@@ -224,10 +224,10 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
 
   String _mapError(String code) {
     switch (code) {
-      case 'invalid-verification-code': return 'Código incorrecto. Revísalo e intenta de nuevo';
-      case 'session-expired':           return 'Código expirado. Solicita uno nuevo';
-      case 'too-many-requests':         return 'Demasiados intentos. Espera un momento';
-      default:                          return 'Error de verificación. Intenta de nuevo';
+      case 'invalid-verification-code': return 'Incorrect code. Check it and try again';
+      case 'session-expired':           return 'Code expired. Request a new one';
+      case 'too-many-requests':         return 'Too many attempts. Wait a moment';
+      default:                          return 'Verification error. Try again';
     }
   }
 
@@ -271,7 +271,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
         onPressed: () => Navigator.pop(context),
       ),
       title: const Text(
-        'Verificación SMS',
+        'SMS Verification',
         style: TextStyle(color: _kText, fontSize: 16, fontWeight: FontWeight.w600),
       ),
       centerTitle: true,
@@ -304,7 +304,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
         ),
         const SizedBox(height: 20),
         const Text(
-          'Código enviado',
+          'Code sent',
           style: TextStyle(color: _kText, fontSize: 22, fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: 10),
@@ -313,7 +313,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
           text: TextSpan(
             style: const TextStyle(color: _kHint, fontSize: 13, height: 1.5),
             children: [
-              const TextSpan(text: 'Ingresa el código de 6 dígitos enviado a\n'),
+              const TextSpan(text: 'Enter the 6-digit code sent to\n'),
               TextSpan(
                 text: widget.phoneNumber,
                 style: const TextStyle(color: _kAccent, fontWeight: FontWeight.w600),
@@ -417,7 +417,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
                 child: CircularProgressIndicator(color: Color(0xFF0D0D14), strokeWidth: 2.5),
               )
             : const Text(
-                'Verificar código',
+                'Verify code',
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
               ),
       ),
@@ -431,17 +431,17 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
         text: TextSpan(
           children: [
             const TextSpan(
-              text: '¿No recibiste el código?  ',
+              text: "Didn't receive the code?  ",
               style: TextStyle(color: _kHint, fontSize: 13),
             ),
             if (_resendSeconds > 0)
               TextSpan(
-                text: 'Reenviar en ${_resendSeconds}s',
+                text: 'Resend in ${_resendSeconds}s',
                 style: const TextStyle(color: _kHint, fontSize: 13),
               )
             else
               const TextSpan(
-                text: 'Reenviar ahora',
+                text: 'Resend now',
                 style: TextStyle(color: _kAccent, fontSize: 13, fontWeight: FontWeight.w600),
               ),
           ],

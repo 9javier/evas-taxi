@@ -20,7 +20,7 @@ class WelcomeScreen extends StatefulWidget {
 class _WelcomeScreenState extends State<WelcomeScreen> {
   bool _ready = false;
   bool _error = false;
-  String _status = 'Inicializando...';
+  String _status = 'Initializing...';
 
   // Solo manejamos getInitialMessage aquí (app terminada).
   // Los listeners onMessage y onMessageOpenedApp viven en main.dart para evitar duplicados.
@@ -69,7 +69,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     setState(() {
       _ready = false;
       _error = false;
-      _status = 'Cargando recursos y configuraciones...';
+      _status = 'Loading resources and settings...';
     });
 
     try {
@@ -92,13 +92,13 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       if (!mounted) return;
       setState(() {
         _ready = true;
-        _status = 'Listo';
+        _status = 'Ready';
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _error = true;
-        _status = 'Error durante la inicialización';
+        _status = 'Error during initialization';
       });
     }
   }
@@ -171,7 +171,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                     Text('Welcome', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     Text(
-                      widget.phoneNumber.isNotEmpty ? 'Has iniciado sesión como ${widget.phoneNumber}' : 'Has iniciado sesión',
+                      widget.phoneNumber.isNotEmpty ? 'Signed in as ${widget.phoneNumber}' : 'Signed in',
                       style: theme.textTheme.bodyMedium,
                       textAlign: TextAlign.center,
                     ),
@@ -181,7 +181,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                       children: [
                         if (!_ready && !_error) const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
                         const SizedBox(width: 12),
-                        Text('¡Ready!', style: theme.textTheme.bodySmall),
+                        Text('Ready!', style: theme.textTheme.bodySmall),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -197,7 +197,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 child: ElevatedButton(
                   style: ElevatedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), backgroundColor: Colors.blue[600]),
                   onPressed: _ready ? _onContinue : null,
-                  child: Text(_ready ? 'Continuar' : 'Cargando...', style: TextStyle(color: Colors.white, fontSize: 18.0, fontWeight: FontWeight.bold),),
+                  child: Text(_ready ? 'Continue' : 'Loading...', style: TextStyle(color: Colors.white, fontSize: 18.0, fontWeight: FontWeight.bold),),
                 ),
               ),
             ),

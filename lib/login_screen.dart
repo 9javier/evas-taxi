@@ -36,9 +36,9 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
   static const _kErrorBg = Color(0xFF2D1515);
 
   static const _countries = [
-    _Country('🇺🇸', 'Estados Unidos', '+1'),
-    _Country('🇨🇦', 'Canadá', '+1'),
-    _Country('🇲🇽', 'México', '+52'),
+    _Country('🇺🇸', 'United States', '+1'),
+    _Country('🇨🇦', 'Canada', '+1'),
+    _Country('🇲🇽', 'Mexico', '+52'),
   ];
 
   _Country _selected = _countries[0];
@@ -79,7 +79,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
     if (!_formKey.currentState!.validate()) return;
     final rawDigits = _phoneCtrl.text.trim().replaceAll(RegExp(r'\D'), '');
     if (rawDigits.length != 10) {
-      setState(() => _error = 'Ingresa un número válido de 10 dígitos');
+      setState(() => _error = 'Enter a valid 10-digit number');
       return;
     }
     setState(() { _loading = true; _error = ''; });
@@ -107,7 +107,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
             if (!mounted) return;
             setState(() {
               _loading = false;
-              _error = 'No existe ningún conductor con este número. Contacta al administrador.';
+              _error = 'No driver found with this number. Please contact the administrator.';
             });
             return;
           }
@@ -152,11 +152,11 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
 
   String _mapError(String code) {
     switch (code) {
-      case 'invalid-phone-number':   return 'Número de teléfono inválido';
-      case 'too-many-requests':      return 'Demasiados intentos. Intenta más tarde';
-      case 'quota-exceeded':         return 'Cuota de SMS excedida. Intenta más tarde';
-      case 'network-request-failed': return 'Sin conexión. Verifica tu internet';
-      default:                       return 'Error al enviar código. Intenta de nuevo';
+      case 'invalid-phone-number':   return 'Invalid phone number';
+      case 'too-many-requests':      return 'Too many attempts. Try again later';
+      case 'quota-exceeded':         return 'SMS quota exceeded. Try again later';
+      case 'network-request-failed': return 'No connection. Check your internet';
+      default:                       return 'Error sending code. Try again';
     }
   }
 
@@ -273,12 +273,12 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Bienvenido, conductor',
+              'Welcome, driver',
               style: TextStyle(color: _kText, fontSize: 20, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
             const Text(
-              'Ingresa tu número de teléfono para recibir\nun código de verificación por SMS',
+              'Enter your phone number to receive\na verification code via SMS',
               style: TextStyle(color: _kHint, fontSize: 13, height: 1.45),
             ),
             const SizedBox(height: 24),
@@ -358,8 +358,8 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
               ),
             ),
             validator: (v) {
-              if (v == null || v.trim().isEmpty) return 'Ingresa tu número';
-              if (v.trim().length < 10) return 'Número incompleto (10 dígitos)';
+              if (v == null || v.trim().isEmpty) return 'Enter your number';
+              if (v.trim().length < 10) return 'Incomplete number (10 digits)';
               return null;
             },
           ),
@@ -388,7 +388,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
                 child: CircularProgressIndicator(color: Color(0xFF0D0D14), strokeWidth: 2.5),
               )
             : const Text(
-                'Enviar código',
+                'Send code',
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
               ),
       ),
@@ -417,7 +417,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
 
   Widget _buildFooter() {
     return const Text(
-      'Al continuar, aceptas nuestros Términos de Servicio\ny Política de Privacidad',
+      'By continuing, you accept our Terms of Service\nand Privacy Policy',
       textAlign: TextAlign.center,
       style: TextStyle(color: _kHint, fontSize: 11, height: 1.6),
     );
@@ -456,7 +456,7 @@ class _CountrySheet extends StatelessWidget {
             const Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Selecciona tu país',
+                'Select your country',
                 style: TextStyle(color: _kText, fontSize: 16, fontWeight: FontWeight.w700),
               ),
             ),
