@@ -25,35 +25,12 @@ const AndroidNotificationChannel _travelChannel = AndroidNotificationChannel(
 );
 
 // Handler que se ejecuta en un isolate separado cuando la app está en background/bloqueada.
-// Muestra una notificación local de alta importancia para avisar al conductor.
+// El payload FCM ya incluye el campo `notification` (título + body en inglés),
+// por lo que Android muestra la notificación del sistema automáticamente.
+// No mostramos una notificación local adicional para evitar el duplicado.
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
-  if ((message.data['type'] ?? '') != 'NEW_TRAVEL') return;
-
-  final plugin = FlutterLocalNotificationsPlugin();
-  await plugin.initialize(
-    const InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-    ),
-  );
-  await plugin.show(
-    message.hashCode.abs() % 2147483647,
-    'Nuevo viaje disponible',
-    'Tienes una nueva solicitud de viaje',
-    NotificationDetails(
-      android: AndroidNotificationDetails(
-        _travelChannel.id,
-        _travelChannel.name,
-        channelDescription: _travelChannel.description,
-        importance: Importance.max,
-        priority: Priority.high,
-        playSound: true,
-        enableVibration: true,
-        fullScreenIntent: true,
-      ),
-    ),
-  );
+  // Sin-op intencional: FCM ya presenta la notificación del sistema.
 }
 
 void handleTravelNotification(String travelId, BuildContext context, String? phoneNumber) {

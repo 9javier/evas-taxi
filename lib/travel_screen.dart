@@ -18,6 +18,8 @@ import 'firebase_action_service.dart';
 import 'travel_notification_handler.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:flutter_local_notifications/flutter_local_notifications.dart'
+    show FlutterLocalNotificationsPlugin;
 import 'package:url_launcher/url_launcher.dart';
 import 'chat_service.dart';
 
@@ -1878,6 +1880,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   }
 
   void _endTrip() {
+    FlutterLocalNotificationsPlugin().cancelAll();
+
     final queuedId = pendingTravelIdNotifier.value;
 
     _safeSetState(() {
