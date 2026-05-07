@@ -36,23 +36,6 @@ target 'Runner' do
 end
 
 post_install do |installer|
-  puts "===== EVAS-TAXI POST_INSTALL START ====="
-
-  # 1. Limpiar todos los .xcconfig generados
-  sandbox_root = installer.sandbox.root.to_s
-  xcconfig_patched = 0
-  Dir.glob(File.join(sandbox_root, '**', '*.xcconfig')).each do |f|
-    next unless File.file?(f)
-    content = File.read(f)
-    patched = content.gsub(/-G\S*/, '')
-    if patched != content
-      File.write(f, patched)
-      xcconfig_patched += 1
-      puts "  [xcconfig] Parcheado: #{File.basename(f)}"
-    end
-  end
-  puts "  [xcconfig] #{xcconfig_patched} archivo(s) parcheado(s)."
-
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
 
@@ -60,35 +43,18 @@ post_install do |installer|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
       config.build_settings['ENABLE_BITCODE'] = 'NO'
       config.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
+    end
 
-      # 2. Limpiar -G de TODOS los build settings a nivel de target
-      config.build_settings.each_key do |key|
-        value = config.build_settings[key]
-        if value.is_a?(Array)
-          cleaned = value.reject { |f| f.to_s.strip =~ /^-G/ }
-          if cleaned.length != value.length
-            config.build_settings[key] = cleaned
-            puts "  [target-array][#{target.name}] Cleaned #{key}"
-          end
-        elsif value.is_a?(String) && value =~ /-G\b/
-          config.build_settings[key] = value.gsub(/-G\S*/, '').strip
-          puts "  [target-str][#{target.name}] Cleaned #{key}: #{value}"
-        end
+    # BoringSSL-GRPC establece -GCC_WARN_INHIBIT_ALL_WARNINGS como flag por archivo.
+    # Apple Clang en arm64 lo interpreta como la opcion -G (MIPS) y falla.
+    # Fix: eliminar ese flag especifico de cada archivo fuente del pod.
+    if target.name == 'BoringSSL-GRPC'
+      target.source_build_phase.files.each do |file|
+        next unless file.settings && file.settings['COMPILER_FLAGS']
+        flags = file.settings['COMPILER_FLAGS'].split
+        flags.reject! { |flag| flag == '-GCC_WARN_INHIBIT_ALL_WARNINGS' }
+        file.settings['COMPILER_FLAGS'] = flags.join(' ')
       end
     end
-
-    # 3. Limpiar COMPILER_FLAGS por archivo (PBXBuildFile)
-    # abseil, gRPC y otros pods C++ usan flags por archivo en lugar de OTHER_CFLAGS
-    next unless target.respond_to?(:source_build_phase)
-    target.source_build_phase.files.each do |build_file|
-      next unless build_file.settings
-      flags = build_file.settings['COMPILER_FLAGS']
-      next unless flags.is_a?(String) && flags.match?(/-G/)
-      old = flags.dup
-      build_file.settings['COMPILER_FLAGS'] = flags.gsub(/-G\S*/, '').strip
-      puts "  [per-file][#{target.name}] COMPILER_FLAGS: '#{old}' -> '#{build_file.settings['COMPILER_FLAGS']}'"
-    end
   end
-
-  puts "===== EVAS-TAXI POST_INSTALL END ====="
 end
