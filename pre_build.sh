@@ -74,13 +74,28 @@ if [ -f "$PODS_PBXPROJ" ]; then
 fi
 
 # 5c. Buscar en ALL build settings usando grep raw sobre Pods.xcodeproj
-echo ">>> Buscando 'OTHER_CFLAGS' y 'OTHER_CPLUSPLUSFLAGS' con -G en Pods.xcodeproj:"
+echo ">>> [A] COMPILER_FLAGS por archivo con -G (PBXBuildFile en Pods.xcodeproj):"
 if [ -f "$PODS_PBXPROJ" ]; then
-  grep -n "OTHER_C.*FLAGS\|OTHER_CPLUSPLUS" "$PODS_PBXPROJ" 2>/dev/null | grep -v "inherited" | head -20 || echo "   (ninguno encontrado con valor custom)"
-  # También mostrar líneas con -G en cualquier contexto de flags
-  grep -n "\-G" "$PODS_PBXPROJ" 2>/dev/null \
-    | grep -v "GENERATE\|GCC_\|= /\|url\|path\|Path\|dir\|Dir\|Name\|name\|File\|file\|comment\|Comment" \
-    | head -30 || echo "   (ningún -G encontrado en Pods.xcodeproj)"
+  grep -n "COMPILER_FLAGS" "$PODS_PBXPROJ" | grep -- "-G" | head -30 \
+    || echo "   ✅ Ningún COMPILER_FLAGS con -G encontrado."
+fi
+
+echo ""
+echo ">>> [B] OTHER_CFLAGS / OTHER_CPLUSPLUSFLAGS con valor custom:"
+if [ -f "$PODS_PBXPROJ" ]; then
+  grep -n "OTHER_C.*FLAGS\|OTHER_CPLUSPLUS" "$PODS_PBXPROJ" \
+    | grep -v "inherited\|^\s*OTHER_C.*FLAGS = " \
+    | head -20 \
+    || echo "   ✅ Ningún FLAGS custom (solo inherited)."
+fi
+
+echo ""
+echo ">>> [C] Cualquier línea con -G en Pods.xcodeproj (excluyendo GCC_ y rutas):"
+if [ -f "$PODS_PBXPROJ" ]; then
+  grep -n "\-G" "$PODS_PBXPROJ" \
+    | grep -v "GENERATE\|GCC_\|= /\|\.git\|url\|path\|Path\|dir\|Dir\|\.h\|\.m\|\.mm\|\.cpp\|\.swift\|Name\|name\|File\|file\|comment\|Comment\|Clean" \
+    | head -40 \
+    || echo "   ✅ Ningún -G sospechoso encontrado."
 fi
 
 echo ""
