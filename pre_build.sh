@@ -24,12 +24,11 @@ echo "✅ flutter pub get completado."
 # ── [3/7] BUSCAR -G ANTES DE POD INSTALL ───────
 echo ""
 echo "--- [3/7] BÚSQUEDA DE -G ANTES DE POD INSTALL ---"
-# Patrón preciso: espacio + -G + (espacio | dígito | fin de línea)
-# Excluye falsos positivos como -GENERATE_, -GCC_, -GSOMETHING
-FLAG_PATTERN=" -G[[:space:]0-9]| -G$"
-FOUND_BEFORE=$(grep -rEn "$FLAG_PATTERN" \
+# Solo busca en xcconfigs y plists (excluye pbxproj del proyecto propio para evitar
+# falsos positivos del build phase "Clean -G Flag" que agregamos)
+FLAG_PATTERN_XCCONFIG=" -G[[:space:]0-9]| -G$"
+FOUND_BEFORE=$(grep -rEn "$FLAG_PATTERN_XCCONFIG" \
   --include="*.xcconfig" \
-  --include="*.pbxproj" \
   --include="*.plist" \
   ios/ 2>/dev/null || true)
 
@@ -48,60 +47,63 @@ rm -rf Pods Podfile.lock
 
 pod repo update --silent
 echo "Ejecutando pod install..."
-# Filtra la salida: muestra instalaciones, errores y warnings relevantes
 pod install 2>&1 | grep -E \
   "^(Installing|Using|Downloading|Generating|Analyzing|Building|Warning|Error|Post-install)" \
   || true
 echo "✅ pod install finalizado."
 
-# ── [5/7] BUSCAR -G DESPUÉS DE POD INSTALL ─────
+# ── [5/7] BÚSQUEDA PROFUNDA EN PODS GENERADOS ──
 echo ""
 echo "--- [5/7] BÚSQUEDA DE -G EN PODS GENERADOS ---"
-FOUND_XCCONFIG=$(grep -rEn "$FLAG_PATTERN" \
+
+# 5a. xcconfigs: patrón con espacio (formato más común en xcconfig)
+FOUND_XCCONFIG=$(grep -rEn "$FLAG_PATTERN_XCCONFIG" \
   --include="*.xcconfig" \
   Pods/ 2>/dev/null || true)
 
-FOUND_PBXPROJ=$(grep -rEn "$FLAG_PATTERN" \
-  --include="*.pbxproj" \
-  . 2>/dev/null || true)
-
-if [ -n "$FOUND_XCCONFIG" ]; then
-  echo "⚠️  FLAG -G en xcconfig (POD CULPABLE):"
-  echo "$FOUND_XCCONFIG"
-  echo ""
-  echo "🛠️  Aplicando parche de emergencia en xcconfigs..."
-  find Pods/ -name "*.xcconfig" | while read -r xcfile; do
-    if grep -qE "$FLAG_PATTERN" "$xcfile" 2>/dev/null; then
-      echo "   Parcheando: $xcfile"
-      # sed preciso: elimina -G suelto o -G<dígito>, no toca -GENERATE u otros
-      sed -i '' -E 's/ -G([[:space:]]|[0-9])/ /g; s/ -G$//g' "$xcfile"
-    fi
-  done
-  echo "   Verificando resultado..."
-  STILL_THERE=$(grep -rEn "$FLAG_PATTERN" --include="*.xcconfig" Pods/ 2>/dev/null || true)
-  if [ -n "$STILL_THERE" ]; then
-    echo "⚠️  Aún quedan ocurrencias después del parche:"
-    echo "$STILL_THERE"
-  else
-    echo "✅ xcconfigs parcheados y limpios."
-  fi
-else
-  echo "✅ Ningún xcconfig en Pods/ contiene el flag -G."
+# 5b. Pods.xcodeproj/project.pbxproj: busca también el formato quoted "-G"
+# que aparece cuando CocoaPods escribe el flag directamente en el dict del proyecto
+PODS_PBXPROJ="Pods/Pods.xcodeproj/project.pbxproj"
+FOUND_PBXPROJ_DICT=""
+if [ -f "$PODS_PBXPROJ" ]; then
+  # Patrón ampliado: detecta -G con espacio antes, -G entre comillas, o -G<dígito>
+  FOUND_PBXPROJ_DICT=$(grep -En '"-G[^"]*"| -G[[:space:]0-9]| -G$|-G[0-9]' \
+    "$PODS_PBXPROJ" 2>/dev/null \
+    | grep -v "GENERATE\|GCC_SYMBOLS\|GCC_WARN\|GCC_PREPROCESSOR\|GCC_DYNAMIC\|GCC_OPTIMIZATION\|GCC_ENABLE\|GCC_NO\|GCC_TREAT\|GCC_REUSE\|GCC_INLINES\|GCC_THUMB\|GCC_VERSION\|GCC_UNROLL\|GCC_FAST" \
+    || true)
 fi
 
-if [ -n "$FOUND_PBXPROJ" ]; then
-  echo "⚠️  FLAG -G en .pbxproj:"
-  echo "$FOUND_PBXPROJ"
+# 5c. Buscar en ALL build settings usando grep raw sobre Pods.xcodeproj
+echo ">>> Buscando 'OTHER_CFLAGS' y 'OTHER_CPLUSPLUSFLAGS' con -G en Pods.xcodeproj:"
+if [ -f "$PODS_PBXPROJ" ]; then
+  grep -n "OTHER_C.*FLAGS\|OTHER_CPLUSPLUS" "$PODS_PBXPROJ" 2>/dev/null | grep -v "inherited" | head -20 || echo "   (ninguno encontrado con valor custom)"
+  # También mostrar líneas con -G en cualquier contexto de flags
+  grep -n "\-G" "$PODS_PBXPROJ" 2>/dev/null \
+    | grep -v "GENERATE\|GCC_\|= /\|url\|path\|Path\|dir\|Dir\|Name\|name\|File\|file\|comment\|Comment" \
+    | head -30 || echo "   (ningún -G encontrado en Pods.xcodeproj)"
+fi
+
+echo ""
+if [ -n "$FOUND_XCCONFIG" ]; then
+  echo "⚠️  FLAG -G en xcconfigs:"
+  echo "$FOUND_XCCONFIG"
 else
-  echo "✅ Ningún .pbxproj contiene el flag -G."
+  echo "✅ xcconfigs en Pods/ limpios."
+fi
+
+if [ -n "$FOUND_PBXPROJ_DICT" ]; then
+  echo "⚠️  FLAG -G en Pods.xcodeproj/project.pbxproj (build settings dict):"
+  echo "$FOUND_PBXPROJ_DICT"
+else
+  echo "✅ Pods.xcodeproj/project.pbxproj limpio (patrón ampliado)."
 fi
 
 # ── [6/7] PODS INSTALADOS ──────────────────────
 echo ""
 echo "--- [6/7] PODS INSTALADOS ---"
 if [ -f Podfile.lock ]; then
-  echo "Extracto de Podfile.lock:"
-  grep -E "^  - [A-Za-z]" Podfile.lock | head -50 || true
+  echo "Extracto de Podfile.lock (primeros 60):"
+  grep -E "^  - [A-Za-z]" Podfile.lock | head -60 || true
 else
   echo "⚠️  Podfile.lock no encontrado."
 fi
@@ -109,10 +111,12 @@ fi
 # ── [7/7] RESUMEN FINAL ────────────────────────
 echo ""
 echo "--- [7/7] RESUMEN ---"
-if [ -z "$FOUND_XCCONFIG" ] && [ -z "$FOUND_PBXPROJ" ]; then
-  echo "✅ Sin flag -G detectado. El build debería compilar sin errores de -G."
+if [ -z "$FOUND_XCCONFIG" ] && [ -z "$FOUND_PBXPROJ_DICT" ]; then
+  echo "✅ Patrón -G no detectado en búsqueda ampliada."
+  echo "   Si el build falla de todas formas, el flag puede estar como '\"-G\"'"
+  echo "   en algún build setting — revisa el bloque '>>> Buscando OTHER_C' arriba."
 else
-  echo "⚠️  Se encontró -G. Revisa los logs de los pasos [3] y [5] arriba."
+  echo "⚠️  Se encontró -G. Revisa los pasos [5] arriba para identificar el pod."
 fi
 
 cd ..
