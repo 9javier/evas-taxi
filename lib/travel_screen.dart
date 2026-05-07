@@ -1484,6 +1484,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           const SizedBox(height: 16),
 
           if (!hasTravel) ...[
+
             // â”€â”€ Sin viaje â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
