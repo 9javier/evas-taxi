@@ -18,7 +18,10 @@
       "Bash(Select-Object FullName)",
       "Bash(ConvertTo-Csv -NoTypeInformation)",
       "Bash(Select-Object -Skip 1)",
-      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\Dell\\\\StudioProjects\\\\evas_taxi_passenger\\\\ios\" -Recurse -Force | Select-Object FullName | ForEach-Object { $_.FullName })"
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\Dell\\\\StudioProjects\\\\evas_taxi_passenger\\\\ios\" -Recurse -Force | Select-Object FullName | ForEach-Object { $_.FullName })",
+      "Bash(New-Item -Path \"C:\\\\Users\\\\Dell\\\\StudioProjects\\\\evas_taxi_driver\\\\lib\\\\firebase_options.dart\" -ItemType File -Force)",
+      "Bash(Out-Null)",
+      "PowerShell(New-Item *)"
     ]
   }
 }

@@ -7,6 +7,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
+import 'firebase_options.dart';
 import 'app_state.dart';
 import 'login_screen.dart';
 import 'notification_center.dart';
@@ -65,7 +66,9 @@ Future<void> main() async {
     WidgetsFlutterBinding.ensureInitialized();
 
     debugLog += "\n2. Inicializando Firebase...";
-    await Firebase.initializeApp();
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
 
     debugLog += "\n3. Firebase OK. Configurando ForegroundTask...";
     FlutterForegroundTask.init(
