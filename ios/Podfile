@@ -43,12 +43,25 @@ post_install do |installer|
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
       config.build_settings['ENABLE_BITCODE'] = 'NO'
 
-      # 2. Limpieza agresiva de flags obsoletos (Solución al error -G)
-      if config.build_settings['OTHER_CFLAGS']
-        config.build_settings['OTHER_CFLAGS'].delete('-G')
+      # 2. Eliminar -G del diccionario de build settings
+      # (.delete en Ruby sobre String borra caracteres, no subcadenas — se usa gsub/reject)
+      cflags = config.build_settings['OTHER_CFLAGS']
+      if cflags.is_a?(Array)
+        config.build_settings['OTHER_CFLAGS'] = cflags.reject { |f| f.strip == '-G' }
+      elsif cflags.is_a?(String)
+        config.build_settings['OTHER_CFLAGS'] = cflags.gsub(/\s*-G\b/, '').strip
       end
 
-      # 3. Arreglo para arquitecturas arm64 (Apple Silicon)
+      # 3. Parchear los .xcconfig generados por CocoaPods donde sqflite inyecta -G
+      # El diccionario de build settings no refleja estos archivos hasta que Xcode los lee
+      xcconfig_path = config.base_configuration_reference&.real_path
+      if xcconfig_path && File.exist?(xcconfig_path)
+        content = File.read(xcconfig_path)
+        patched = content.gsub(/\s*-G\b/, '')
+        File.write(xcconfig_path, patched) if patched != content
+      end
+
+      # 4. Arreglo para arquitecturas arm64 (Apple Silicon)
       config.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
     end
   end
