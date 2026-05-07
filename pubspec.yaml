@@ -49,7 +49,7 @@ dependencies:
   path: ^1.9.1
   flutter_foreground_task: ^8.16.0
   flutter_local_notifications: ^18.0.1
-  url_launcher: ^6.3.3
+  url_launcher: ^6.3.0
   firebase_database: ^10.0.0
 dev_dependencies:
   flutter_test:
