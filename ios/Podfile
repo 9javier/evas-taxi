@@ -36,32 +36,31 @@ target 'Runner' do
 end
 
 post_install do |installer|
+  # Barrer todos los .xcconfig generados por CocoaPods y eliminar -G donde aparezca.
+  # base_configuration_reference solo alcanza archivos con referencia directa;
+  # Dir.glob cubre archivos agregados y transitivos que se saltan esa búsqueda.
+  Dir.glob(File.join(installer.sandbox.root, '**', '*.xcconfig')).each do |xcconfig_file|
+    content = File.read(xcconfig_file)
+    patched = content.gsub(/-G\S*/, '')
+    File.write(xcconfig_file, patched) if patched != content
+  end
+
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
     target.build_configurations.each do |config|
-      # 1. Asegurar compatibilidad con iPhone 15 y Xcode 16
+      # 1. Compatibilidad con iPhone 15 y Xcode 16
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '14.0'
       config.build_settings['ENABLE_BITCODE'] = 'NO'
 
-      # 2. Eliminar -G del diccionario de build settings
-      # (.delete en Ruby sobre String borra caracteres, no subcadenas — se usa gsub/reject)
+      # 2. Limpiar -G del diccionario en memoria (cubre -G, -G0, -G4, etc.)
       cflags = config.build_settings['OTHER_CFLAGS']
       if cflags.is_a?(Array)
-        config.build_settings['OTHER_CFLAGS'] = cflags.reject { |f| f.strip == '-G' }
+        config.build_settings['OTHER_CFLAGS'] = cflags.reject { |f| f.strip =~ /^-G/ }
       elsif cflags.is_a?(String)
-        config.build_settings['OTHER_CFLAGS'] = cflags.gsub(/\s*-G\b/, '').strip
+        config.build_settings['OTHER_CFLAGS'] = cflags.gsub(/-G\S*/, '').strip
       end
 
-      # 3. Parchear los .xcconfig generados por CocoaPods donde sqflite inyecta -G
-      # El diccionario de build settings no refleja estos archivos hasta que Xcode los lee
-      xcconfig_path = config.base_configuration_reference&.real_path
-      if xcconfig_path && File.exist?(xcconfig_path)
-        content = File.read(xcconfig_path)
-        patched = content.gsub(/\s*-G\b/, '')
-        File.write(xcconfig_path, patched) if patched != content
-      end
-
-      # 4. Arreglo para arquitecturas arm64 (Apple Silicon)
+      # 3. arm64 / Apple Silicon
       config.build_settings['ONLY_ACTIVE_ARCH'] = 'NO'
     end
   end
