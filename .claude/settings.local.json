@@ -12,7 +12,8 @@
       "Bash(ls *.jpeg *.png *.jpg *.svg)",
       "Bash(dart run *)",
       "Bash(powershell -command \"\\(Get-Content assets/index.ts\\).Count\")",
-      "Bash(flutter build *)"
+      "Bash(flutter build *)",
+      "Bash(flutter clean *)"
     ]
   }
 }
