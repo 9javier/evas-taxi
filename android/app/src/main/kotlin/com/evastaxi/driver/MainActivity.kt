@@ -1,4 +1,4 @@
-package com.example.evas_taxi_driver
+package com.evastaxi.driver
 
 import io.flutter.embedding.android.FlutterActivity
 
