@@ -9,7 +9,7 @@
       "client_info": {
         "mobilesdk_app_id": "1:628462975918:android:acc6704f63433549c9663f",
         "android_client_info": {
-          "package_name": "com.example.evas_taxi_driver"
+          "package_name": "com.evastaxi.driver"
         }
       },
       "oauth_client": [],
