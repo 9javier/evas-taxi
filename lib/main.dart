@@ -14,7 +14,6 @@ import 'notification_guard.dart';
 import 'welcome_screen.dart';
 import 'travel_notification_handler.dart';
 
-// Canal de alta importancia para solicitudes de viaje
 const AndroidNotificationChannel _travelChannel = AndroidNotificationChannel(
   'new_travel_channel',
   'Nuevos viajes',
@@ -24,10 +23,6 @@ const AndroidNotificationChannel _travelChannel = AndroidNotificationChannel(
   enableVibration: true,
 );
 
-// Handler que se ejecuta en un isolate separado cuando la app está en background/bloqueada.
-// El payload FCM ya incluye el campo `notification` (título + body en inglés),
-// por lo que Android muestra la notificación del sistema automáticamente.
-// No mostramos una notificación local adicional para evitar el duplicado.
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   // Sin-op intencional: FCM ya presenta la notificación del sistema.
@@ -39,100 +34,147 @@ void handleTravelNotification(String travelId, BuildContext context, String? pho
   showTravelRequestDialog(context, travelId, phoneNumber);
 }
 
+// Variable global de diagnóstico — visible en pantalla si algo falla al arrancar.
+String debugLog = "Iniciando...";
+
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+  // Capturar errores no controlados del framework Flutter.
+  FlutterError.onError = (details) {
+    debugLog += "\n❌ Error Flutter: ${details.exception}";
+  };
 
-  FlutterForegroundTask.init(
-    androidNotificationOptions: AndroidNotificationOptions(
-      channelId: 'eva_taxi_gps',
-      channelName: "Eva's Taxi GPS",
-      channelDescription: 'GPS activo mientras hay un viaje en curso.',
-      onlyAlertOnce: true,
-      showWhen: false,
+  // Mostrar pantalla de carga inmediatamente para confirmar que el app arranca.
+  runApp(MaterialApp(
+    debugShowCheckedModeBanner: false,
+    home: Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text("Cargando Eva's Taxi..."),
+          ],
+        ),
+      ),
     ),
-    iosNotificationOptions: const IOSNotificationOptions(
-      showNotification: false,
-    ),
-    foregroundTaskOptions: ForegroundTaskOptions(
-      eventAction: ForegroundTaskEventAction.nothing(),
-      autoRunOnBoot: false,
-    ),
-  );
+  ));
 
-  // Crear el canal Android de alta importancia para solicitudes de viaje.
-  // Debe existir antes de mostrar la primera notificación (idempotente).
-  final localNotif = FlutterLocalNotificationsPlugin();
-  await localNotif.initialize(
-    const InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      iOS: DarwinInitializationSettings(),
-    ),
-  );
-  await localNotif
-      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-      ?.createNotificationChannel(_travelChannel);
+  try {
+    debugLog += "\n1. Asegurando bindings...";
+    WidgetsFlutterBinding.ensureInitialized();
 
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    debugLog += "\n2. Inicializando Firebase...";
+    await Firebase.initializeApp();
 
-  // Solicitar permiso de notificaciones (en Android 13+ pide POST_NOTIFICATIONS)
-  await FirebaseMessaging.instance.requestPermission(
-    alert: true,
-    badge: true,
-    sound: true,
-  );
+    debugLog += "\n3. Firebase OK. Configurando ForegroundTask...";
+    FlutterForegroundTask.init(
+      androidNotificationOptions: AndroidNotificationOptions(
+        channelId: 'eva_taxi_gps',
+        channelName: "Eva's Taxi GPS",
+        channelDescription: 'GPS activo mientras hay un viaje en curso.',
+        onlyAlertOnce: true,
+        showWhen: false,
+      ),
+      iosNotificationOptions: const IOSNotificationOptions(
+        showNotification: false,
+      ),
+      foregroundTaskOptions: ForegroundTaskOptions(
+        eventAction: ForegroundTaskEventAction.nothing(),
+        autoRunOnBoot: false,
+      ),
+    );
 
-  // En iOS: no mostrar la notificación del sistema cuando la app está en foreground;
-  // el listener onMessage ya muestra el diálogo in-app con sonido.
-  await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-    alert: false,
-    badge: false,
-    sound: false,
-  );
+    debugLog += "\n4. Configurando notificaciones locales...";
+    final localNotif = FlutterLocalNotificationsPlugin();
+    await localNotif.initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        iOS: DarwinInitializationSettings(),
+      ),
+    );
+    await localNotif
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(_travelChannel);
 
-  registerPendingHandler(handleTravelNotification);
+    debugLog += "\n5. Configurando FCM...";
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-    final data = message.data;
-    final type = data['type'] ?? '';
-    if (type == 'NEW_TRAVEL') {
-      final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
-      final ctx = navigatorKey.currentContext;
-      if (ctx != null) {
-        handleTravelNotification(travelId, ctx, null);
-      } else {
-        addPendingNotification(travelId, null);
+    await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+      alert: false,
+      badge: false,
+      sound: false,
+    );
+
+    registerPendingHandler(handleTravelNotification);
+
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      final data = message.data;
+      final type = data['type'] ?? '';
+      if (type == 'NEW_TRAVEL') {
+        final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
+        final ctx = navigatorKey.currentContext;
+        if (ctx != null) {
+          handleTravelNotification(travelId, ctx, null);
+        } else {
+          addPendingNotification(travelId, null);
+        }
+      } else if (type == 'CANCELED_PASSENGER') {
+        final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
+        playAlertSound();
+        passengerCanceledNotifier.value = travelId;
+      } else if (type == 'CHAT') {
+        chatNewMessageNotifier.value = true;
       }
-    } else if (type == 'CANCELED_PASSENGER') {
-      final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
-      playAlertSound();
-      passengerCanceledNotifier.value = travelId;
-    } else if (type == 'CHAT') {
-      chatNewMessageNotifier.value = true;
-    }
-  });
+    });
 
-  FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-    final data = message.data;
-    final type = data['type'] ?? '';
-    if (type == 'NEW_TRAVEL') {
-      final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
-      final ctx = navigatorKey.currentContext;
-      if (ctx != null) {
-        handleTravelNotification(travelId, ctx, null);
-      } else {
-        addPendingNotification(travelId, null);
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      final data = message.data;
+      final type = data['type'] ?? '';
+      if (type == 'NEW_TRAVEL') {
+        final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
+        final ctx = navigatorKey.currentContext;
+        if (ctx != null) {
+          handleTravelNotification(travelId, ctx, null);
+        } else {
+          addPendingNotification(travelId, null);
+        }
+      } else if (type == 'CANCELED_PASSENGER') {
+        final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
+        playAlertSound();
+        passengerCanceledNotifier.value = travelId;
+      } else if (type == 'CHAT') {
+        chatNewMessageNotifier.value = true;
       }
-    } else if (type == 'CANCELED_PASSENGER') {
-      final travelId = (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
-      playAlertSound();
-      passengerCanceledNotifier.value = travelId;
-    } else if (type == 'CHAT') {
-      chatNewMessageNotifier.value = true;
-    }
-  });
+    });
 
-  runApp(const RootApp());
+    debugLog += "\n6. Lanzando app principal...";
+    runApp(const RootApp());
+
+  } catch (e, stack) {
+    debugLog += "\n🔥 ERROR CRÍTICO: $e";
+    runApp(MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              "LOG DE ERROR:\n$debugLog\n\nSTACK:\n$stack",
+              style: const TextStyle(color: Colors.red, fontSize: 12),
+            ),
+          ),
+        ),
+      ),
+    ));
+  }
 }
 
 class RootApp extends StatefulWidget {
@@ -149,8 +191,6 @@ class _RootAppState extends State<RootApp> {
   void initState() {
     super.initState();
     _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
-      // skipAuthNavigation se activa durante el flujo OTP para que la app
-      // no navegue automáticamente antes de verificar el conductor.
       if (skipAuthNavigation) return;
       Future<void> attemptNavigate() async {
         for (var i = 0; i < 10; i++) {
@@ -196,6 +236,7 @@ class MyApp extends StatelessWidget {
     return WithForegroundTask(
       child: MaterialApp(
         title: "Eva's Taxi — Driver",
+        debugShowCheckedModeBanner: false,
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6366F1)),
         ),
