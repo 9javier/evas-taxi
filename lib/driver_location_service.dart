@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -72,9 +71,7 @@ class DriverLocationService {
             callback: foregroundTaskCallback,
           );
           _foregroundRunning = true;
-        } catch (e) {
-          debugPrint('DriverLocationService: error iniciando foreground service: $e');
-        }
+        } catch (_) {}
       }
 
       final settings = LocationSettings(
@@ -132,9 +129,7 @@ class DriverLocationService {
       try {
         await FlutterForegroundTask.stopService();
         _foregroundRunning = false;
-      } catch (e) {
-        debugPrint('DriverLocationService: error deteniendo foreground service: $e');
-      }
+      } catch (_) {}
     }
   }
 

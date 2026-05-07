@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -23,7 +23,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart'
 import 'package:url_launcher/url_launcher.dart';
 import 'chat_service.dart';
 
-// ── Paleta Dark Premium (alineada con el popup de solicitud de viaje) ────────
+// â”€â”€ Paleta Dark Premium (alineada con el popup de solicitud de viaje) â”€â”€â”€â”€â”€â”€â”€â”€
 const Color _tsCardBg    = Color(0xFF1E1E26);
 const Color _tsSurface   = Color(0xFF2A2A34);
 const Color _tsAccent    = Color(0xFF6366F1);
@@ -34,7 +34,7 @@ const Color _tsTextMain  = Colors.white;
 const Color _tsTextMuted = Color(0xFFA0A0AB);
 const Color _tsHandle    = Color(0xFF3F3F46);
 
-// Estilo de mapa limpio (constante a nivel de archivo) — usado por GoogleMap.style
+// Estilo de mapa limpio (constante a nivel de archivo) â€” usado por GoogleMap.style
 const String _cleanMapStyle = '''[
   {"featureType":"poi","elementType":"all","stylers":[{"visibility":"off"}]},
   {"featureType":"transit","elementType":"all","stylers":[{"visibility":"off"}]},
@@ -83,7 +83,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   BitmapDescriptor? _destinationIcon;
   // Control de visibilidad del marcador del pasajero
   bool _showPassengerMarker = true;
-  // Animación suave del marcador del conductor
+  // AnimaciÃ³n suave del marcador del conductor
   late AnimationController _markerController;
   LatLng? _markerAnimStart;
   LatLng? _markerAnimEnd;
@@ -96,38 +96,38 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   bool _sheetExpanded = false;
   final Map<String, DateTime> _lastLoadedAt = {};
   bool _loadingTravelData = false;
-  // Última posición en la que se solicitó una ruta nueva (para throttle por distancia)
+  // Ãšltima posiciÃ³n en la que se solicitÃ³ una ruta nueva (para throttle por distancia)
   Position? _lastRoutePosition;
-  // Timer de rescate: a los 10 s busca notificaciones pendientes si aún no hay viaje
+  // Timer de rescate: a los 10 s busca notificaciones pendientes si aÃºn no hay viaje
   Timer? _pendingCheckTimer;
 
   bool _navigating = false;
-  // Indica si el conductor ya recogió al pasajero (true solo después de pulsar "Recoger al Pasajero").
+  // Indica si el conductor ya recogiÃ³ al pasajero (true solo despuÃ©s de pulsar "Recoger al Pasajero").
   bool _passengerPickedUp = false;
-  // Flags para enviar cada notificación de proximidad una sola vez por viaje.
+  // Flags para enviar cada notificaciÃ³n de proximidad una sola vez por viaje.
   bool _notifiedDriverNear = false;
   bool _notifiedDriverArrived = false;
   // Evita ejecuciones concurrentes del chequeo de proximidad.
   bool _checkingProximity = false;
-  // Evita recentrar el mapa más de una vez al abrir la pantalla
+  // Evita recentrar el mapa mÃ¡s de una vez al abrir la pantalla
   bool _mapCenteredInitially = false;
-  // Evita múltiples restauraciones simultáneas
+  // Evita mÃºltiples restauraciones simultÃ¡neas
   bool _restoring = false;
-  EdgeInsets _mapPadding = EdgeInsets.zero; // nuevo padding dinámico del mapa
+  EdgeInsets _mapPadding = EdgeInsets.zero; // nuevo padding dinÃ¡mico del mapa
 
-  // Control de interacción manual del driver con el mapa:
-  // cuando el driver hace zoom/pan, pausamos el seguimiento automático de cámara.
+  // Control de interacciÃ³n manual del driver con el mapa:
+  // cuando el driver hace zoom/pan, pausamos el seguimiento automÃ¡tico de cÃ¡mara.
   bool _userPanningMap = false;
   DateTime? _lastUserInteractionAt;
   bool _programmaticCameraMove = false;
   static const int _userInteractionPauseSecs = 12;
-  bool _refreshing = false; // bloquea doble-tap en botón refresh
+  bool _refreshing = false; // bloquea doble-tap en botÃ³n refresh
   bool _hasNewChatMessage = false;
 
   // Nombre del pasajero del viaje en cola (se carga cuando pendingTravelIdNotifier cambia)
   String _pendingPassengerName = '';
 
-  // Vehículo activo del conductor
+  // VehÃ­culo activo del conductor
   String? _activeVehicleBrand;
   String? _activeVehicleModel;
   String? _activeVehiclePlate;
@@ -137,15 +137,15 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     super.initState();
     _loadMarkerIcons();
     _getCurrentLocation();
-    // Eliminado listener de pestañas para evitar restauraciones repetidas y loops de recarga.
+    // Eliminado listener de pestaÃ±as para evitar restauraciones repetidas y loops de recarga.
     // tabsIndexNotifier.addListener(_onTabChanged);
     if (widget.travelId != null && widget.travelId!.isNotEmpty) {
       _loadTravelData(widget.travelId!);
     }
     // activeTravelIdNotifier.addListener(_onActiveTravelIdChanged); // eliminado para evitar doble carga y loops
     // Sincronizar el estado local _navigating con el notifier global para evitar
-    // que re-renderizados muestren el botón incorrectamente.
-    // Inicializar con el valor actual para evitar que el botón aparezca tras
+    // que re-renderizados muestren el botÃ³n incorrectamente.
+    // Inicializar con el valor actual para evitar que el botÃ³n aparezca tras
     // reconstrucciones si ya estamos en viaje.
     //_navigating = driverOnTripNotifier.value;
     driverOnTripNotifier.addListener(_onDriverOnTripChanged);
@@ -158,7 +158,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       _loadPendingTravelName(pendingTravelIdNotifier.value!);
     }
 
-    // Inicializar controlador de animación para el marcador del conductor
+    // Inicializar controlador de animaciÃ³n para el marcador del conductor
     _markerController = AnimationController(vsync: this, duration: const Duration(milliseconds: 600))
       ..addListener(() {
         if (_markerAnimStart != null && _markerAnimEnd != null) {
@@ -178,25 +178,24 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         }
       });
 
-    // Iniciar el servicio de ubicación usando el ID real del documento del conductor.
+    // Iniciar el servicio de ubicaciÃ³n usando el ID real del documento del conductor.
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
-      debugPrint('DriverLocationService no iniciado: usuario no autenticado.');
     } else if (driverDocId != null) {
-      // ID ya resuelto en esta sesión (login reciente o _refreshFcmToken ya corrió).
+      // ID ya resuelto en esta sesiÃ³n (login reciente o _refreshFcmToken ya corriÃ³).
       _driverId = driverDocId;
       _driverLocationService.start(driverId: _driverId!, distanceFilter: 20, minIntervalSeconds: 10);
       _loadActiveVehicle();
       _subscribeOnlineStatus();
     } else {
-      // App reiniciada sin pasar por login — resolver el ID por query antes de iniciar.
+      // App reiniciada sin pasar por login â€” resolver el ID por query antes de iniciar.
       _resolveDriverIdAndStart(user);
     }
 
-    // A los 10 s, si aún no hay viaje activo, buscar notificaciones pendientes no mostradas.
+    // A los 10 s, si aÃºn no hay viaje activo, buscar notificaciones pendientes no mostradas.
     _pendingCheckTimer = Timer(const Duration(seconds: 10), _claimPendingBackgroundMessage);
 
-    // Suscribirse localmente para actualizar el marcador del conductor y recálculo de ruta mínimo cada 12s
+    // Suscribirse localmente para actualizar el marcador del conductor y recÃ¡lculo de ruta mÃ­nimo cada 12s
     try {
       _positionSubscription = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, distanceFilter: 10),
@@ -204,11 +203,11 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         _currentPosition = pos;
         _driverLatLng = LatLng(pos.latitude, pos.longitude);
 
-        // Animar el marcador del conductor hacia la nueva posición (suavizado)
+        // Animar el marcador del conductor hacia la nueva posiciÃ³n (suavizado)
         _moveDriverMarkerTo(LatLng(pos.latitude, pos.longitude));
 
         if (mounted) setState(() {});
-        // Si todavía no centramos el mapa y tenemos posición, centrarla (primera vez)
+        // Si todavÃ­a no centramos el mapa y tenemos posiciÃ³n, centrarla (primera vez)
         if (!_mapCenteredInitially && _mapController != null) {
           try {
             _mapController!.animateCamera(CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 16));
@@ -216,8 +215,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           } catch (_) {}
         }
 
-        // Durante la navegación, seguir al conductor con una cámara tipo 'GPS' (throttle cada ~1s).
-        // Si el driver está explorando el mapa manualmente, pausar el seguimiento automático.
+        // Durante la navegaciÃ³n, seguir al conductor con una cÃ¡mara tipo 'GPS' (throttle cada ~1s).
+        // Si el driver estÃ¡ explorando el mapa manualmente, pausar el seguimiento automÃ¡tico.
         if (_navigating && (_dropoffLatLng != null || _destinationLatLng != null) && !_isUserInteracting()) {
           final nowCam = DateTime.now();
           if (_lastCameraUpdatedAt == null || nowCam.difference(_lastCameraUpdatedAt!).inMilliseconds >= 900) {
@@ -234,13 +233,12 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                 Future.delayed(const Duration(milliseconds: 250), () => _programmaticCameraMove = false);
               }
             } catch (e) {
-              debugPrint('Error actualizando cámara en navegación: $e');
             }
           }
         }
 
-        // Recalcular ruta si: pasaron ≥30 s (refresh forzado), o ≥12 s Y el driver se movió ≥30 m.
-        // Esto evita llamadas innecesarias a la API de Directions cuando el conductor está parado.
+        // Recalcular ruta si: pasaron â‰¥30 s (refresh forzado), o â‰¥12 s Y el driver se moviÃ³ â‰¥30 m.
+        // Esto evita llamadas innecesarias a la API de Directions cuando el conductor estÃ¡ parado.
         final now = DateTime.now();
         final _secsSinceRoute = _lastRouteUpdatedAt == null ? 999 : now.difference(_lastRouteUpdatedAt!).inSeconds;
         final _distSinceRoute = _lastRoutePosition == null
@@ -260,15 +258,13 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           } catch (_) {}
         }
 
-        // Revisar proximidad y notificar al pasajero si aún no lo hemos hecho
+        // Revisar proximidad y notificar al pasajero si aÃºn no lo hemos hecho
         try {
           await _checkProximityAndNotify();
         } catch (e) {
-          debugPrint('Error checkProximityAndNotify: $e');
         }
       });
     } catch (e) {
-      debugPrint('No se pudo suscribir al stream de ubicación: $e');
     }
   }
 
@@ -278,7 +274,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     final oldId = oldWidget.travelId;
     final newId = widget.travelId;
     if (newId != null && newId.isNotEmpty && newId != oldId) {
-      // Throttle: si se cargó hace <3s no recargar para evitar loop
+      // Throttle: si se cargÃ³ hace <3s no recargar para evitar loop
       final last = _lastLoadedAt[newId];
       if (last != null && DateTime.now().difference(last).inSeconds < 3) return;
       _lastLoadedAt[newId] = DateTime.now();
@@ -289,7 +285,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Eliminamos la restauración automática para evitar que cada reconstrucción vuelva a cargar viaje y ruta.
+    // Eliminamos la restauraciÃ³n automÃ¡tica para evitar que cada reconstrucciÃ³n vuelva a cargar viaje y ruta.
     // Future.microtask(() => _checkActiveTripAndRestore());
   }
 
@@ -304,7 +300,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     tabsIndexNotifier.removeListener(_onTabChanged);
     _pendingCheckTimer?.cancel();
     _onlineStatusSub?.cancel();
-    // Detener servicio de ubicación al cerrar la pantalla
+    // Detener servicio de ubicaciÃ³n al cerrar la pantalla
     _driverLocationService.stop();
     _positionSubscription?.cancel();
     _mapController?.dispose();
@@ -312,14 +308,14 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     super.dispose();
   }
 
-  // Helper seguro para evitar setState después de dispose
+  // Helper seguro para evitar setState despuÃ©s de dispose
   void _safeSetState(VoidCallback fn) {
     if (!mounted) return;
     setState(fn);
   }
 
-  /// Devuelve true si el driver está explorando el mapa manualmente y no debe
-  /// interrumpirse con movimientos automáticos de cámara.
+  /// Devuelve true si el driver estÃ¡ explorando el mapa manualmente y no debe
+  /// interrumpirse con movimientos automÃ¡ticos de cÃ¡mara.
   bool _isUserInteracting() {
     if (!_userPanningMap) return false;
     if (_lastUserInteractionAt == null) return false;
@@ -331,10 +327,10 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   }
 
   Future<void> _startNavigation() async {
-    // LLamar al servicio de firebase que notifica al pasajero que el conductor inició la navegación
-    if (!mounted) return; // evitar continuar si ya se desmontó
+    // LLamar al servicio de firebase que notifica al pasajero que el conductor iniciÃ³ la navegaciÃ³n
+    if (!mounted) return; // evitar continuar si ya se desmontÃ³
     // Si no tenemos coordenadas de destino, hacer una lectura puntual a Firestore
-    // solo para obtener las coordenadas — sin setState ni redibujado de ruta.
+    // solo para obtener las coordenadas â€” sin setState ni redibujado de ruta.
     if (_dropoffLatLng == null) {
       final travelId = (widget.travelId ?? activeTravelIdNotifier.value ?? '').toString();
       if (travelId.isNotEmpty) {
@@ -349,13 +345,12 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             }
           }
         } catch (e) {
-          debugPrint('_startNavigation: error leyendo destino desde Firestore: $e');
         }
       }
     }
 
     // El objetivo al iniciar el modo 'Recoger al Pasajero' debe ser el destino final
-    // del pasajero (dropoff/destination). Si no existe, usar la ubicación del pasajero.
+    // del pasajero (dropoff/destination). Si no existe, usar la ubicaciÃ³n del pasajero.
     final target = _dropoffLatLng ?? _destinationLatLng ?? _passengerLatLng;
     if (target == null) return;
 
@@ -366,10 +361,9 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         await FirebaseActionService.updateTravelStatus(travelId, 'in_progress');
       }
     } catch (e) {
-      debugPrint('Error actualizando viaje_status a in_progress: $e');
     }
 
-    // Leer ubicación actual del driver desde Firestore para centrar la cámara.
+    // Leer ubicaciÃ³n actual del driver desde Firestore para centrar la cÃ¡mara.
     try {
       if (_driverId != null && _driverId!.isNotEmpty) {
         final doc = await FirebaseFirestore.instance.collection('drivers').doc(_driverId).get();
@@ -388,7 +382,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             }
           }
 
-          // Si no hay coords en Firestore, fallback a la ubicación actual del dispositivo
+          // Si no hay coords en Firestore, fallback a la ubicaciÃ³n actual del dispositivo
           if (docLatLng == null && _currentPosition != null) {
             docLatLng = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
           }
@@ -405,11 +399,10 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         }
       }
     } catch (e) {
-      debugPrint('Error leyendo ubicación del driver desde Firestore: $e');
     }
 
     _safeSetState(() => _navigating = true);
-    // Marcar que el conductor inicia la navegación y que el pasajero fue recogido
+    // Marcar que el conductor inicia la navegaciÃ³n y que el pasajero fue recogido
     // Esto hace que _activeRouteTarget() y las actualizaciones de ruta prioricen el dropoff.
     _safeSetState(() {
       _navigating = true;
@@ -422,16 +415,15 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     // Preparar ruta inicial en el mapa (usar _driverLatLng actualizado si fue posible)
     try {
       final bounds = await _prepareRouteOnMap(_driverLatLng, target);
-      // Ajustar cámara a una vista GPS centrada en el driver si hay bounds
+      // Ajustar cÃ¡mara a una vista GPS centrada en el driver si hay bounds
       if (bounds != null) {
         await _focusCameraForRoute(_driverLatLng, target, bounds, gpsMode: true);
       }
     } catch (e) {
-      debugPrint('Error preparando ruta al iniciar navegación: $e');
     }
   }
 
-  /// Ajusta la cámara; en gpsMode centra en el driver con vista tipo GPS.
+  /// Ajusta la cÃ¡mara; en gpsMode centra en el driver con vista tipo GPS.
   Future<void> _focusCameraForRoute(LatLng origin, LatLng dest, LatLngBounds bounds, {bool gpsMode = false}) async {
     if (_mapController == null || !mounted) return;
     _programmaticCameraMove = true;
@@ -478,7 +470,6 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         );
       }
     } catch (e) {
-      debugPrint('Error _focusCameraForRoute: $e');
       try {
         await _mapController!.animateCamera(CameraUpdate.newLatLngBounds(bounds, 30));
       } catch (_) {}
@@ -501,7 +492,6 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           _updatePassengerMarker();
         }
       } catch (e) {
-        debugPrint('asset passenger falló al generar bytes: $e');
       }
       try {
         final driverBytes = await _getBytesFromAsset('assets/arrow.png', driverSize);
@@ -511,7 +501,6 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           _safeSetState(() => _driverIcon = driverBd);
         }
       } catch (e) {
-        debugPrint('asset driver falló al generar bytes: $e');
         try {
           final fallback = await _getBytesFromAsset('assets/arrow.png', baseSize);
           if (!mounted) return;
@@ -524,16 +513,14 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         if (!mounted) return;
         if (destBytes != null) _safeSetState(() => _destinationIcon = BitmapDescriptor.bytes(destBytes));
       } catch (e) {
-        debugPrint('asset destino.svg falló: $e');
       }
     } catch (e) {
-      debugPrint('Error cargando iconos: $e');
     }
   }
 
   void _updatePassengerMarker() {
     if (_passengerLatLng == null) return;
-    if (!_showPassengerMarker) return; // no dibujar si está oculto
+    if (!_showPassengerMarker) return; // no dibujar si estÃ¡ oculto
     final icon = _passengerIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
     _markers.removeWhere((m) => m.markerId.value == 'passenger');
     _markers.add(Marker(
@@ -592,7 +579,6 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           try { image.dispose(); } catch (_) {}
           return bytes;
         } catch (e) {
-          debugPrint('Error renderizando SVG en _getBytesFromAsset: $e');
           return null;
         }
       }
@@ -603,7 +589,6 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       final byteData = await frame.image.toByteData(format: ui.ImageByteFormat.png);
       return byteData?.buffer.asUint8List();
     } catch (e) {
-      debugPrint('Error _getBytesFromAsset: $e');
       return null;
     }
   }
@@ -611,13 +596,13 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   double _lerpDouble(double a, double b, double t) => a + (b - a) * t;
 
   void _updateDriverMarker() {
-    // Asegurar que siempre existe el marcador del driver con icono y rotación
+    // Asegurar que siempre existe el marcador del driver con icono y rotaciÃ³n
     _markers.removeWhere((m) => m.markerId.value == 'driver');
     final icon = _driverIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
     _markers.add(Marker(
       markerId: const MarkerId('driver'),
       position: _driverLatLng,
-      infoWindow: const InfoWindow(title: 'Tú'),
+      infoWindow: const InfoWindow(title: 'TÃº'),
       icon: icon,
       rotation: _currentBearing,
       anchor: const Offset(0.5, 0.5),
@@ -628,7 +613,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
 
   /// Mueve suavemente el marcador del conductor hacia [newPos].
   void _moveDriverMarkerTo(LatLng newPos) {
-    // Si no hay posición previa (valor inicial), colocar inmediatamente
+    // Si no hay posiciÃ³n previa (valor inicial), colocar inmediatamente
     if (!_markers.any((m) => m.markerId.value == 'driver')) {
       _driverLatLng = newPos;
       _currentBearing = 0.0;
@@ -636,12 +621,12 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       return;
     }
 
-    // Preparar animación
+    // Preparar animaciÃ³n
     _markerAnimStart = _driverLatLng;
     _markerAnimEnd = newPos;
     _currentBearing = _computeBearing(_markerAnimStart!, _markerAnimEnd!);
 
-    // Duración proporcional a la distancia (clamped)
+    // DuraciÃ³n proporcional a la distancia (clamped)
     final dist = Geolocator.distanceBetween(_markerAnimStart!.latitude, _markerAnimStart!.longitude, _markerAnimEnd!.latitude, _markerAnimEnd!.longitude);
     final ms = (300 + (dist * 2)).clamp(300, 1800).toInt();
     _markerController.duration = Duration(milliseconds: ms);
@@ -662,20 +647,19 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   double _radToDeg(double rad) => rad * (180.0 / math.pi);
 
   void _onDriverOnTripChanged() {
-    debugPrint('driverOnTripNotifier changed -> ${driverOnTripNotifier.value}');
     if (mounted) setState(() => _navigating = driverOnTripNotifier.value);
   }
 
   void _onDriverReleased() {
     if (!driverReleasedNotifier.value) return;
-    driverReleasedNotifier.value = false; // consumir la señal antes de actuar
+    driverReleasedNotifier.value = false; // consumir la seÃ±al antes de actuar
     _endTrip();
   }
 
   void _onPendingTravelChanged() {
     final id = pendingTravelIdNotifier.value;
     if (id != null && id.isNotEmpty) {
-      // Forzar reconstrucción inmediata para que el chip aparezca antes de que termine el fetch del nombre.
+      // Forzar reconstrucciÃ³n inmediata para que el chip aparezca antes de que termine el fetch del nombre.
       _safeSetState(() {});
       _loadPendingTravelName(id);
     } else {
@@ -727,7 +711,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
               ),
               const SizedBox(height: 10),
               const Text(
-                'Lo lamentamos, el pasajero canceló el viaje.',
+                'Lo lamentamos, el pasajero cancelÃ³ el viaje.',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Color(0xFFA0A0AB), fontSize: 14, height: 1.4),
               ),
@@ -778,19 +762,19 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   }
 
   void _onTabChanged() {
-    // Desactivado para evitar loops de recarga al cambiar de pestañas.
+    // Desactivado para evitar loops de recarga al cambiar de pestaÃ±as.
     // if (tabsIndexNotifier.value == 0) {
     //   _checkActiveTripAndRestore();
     // }
   }
 
-  /// Si existe un viaje activo y el driver está en viaje, restaurar estado y dibujar ruta.
+  /// Si existe un viaje activo y el driver estÃ¡ en viaje, restaurar estado y dibujar ruta.
   Future<void> _checkActiveTripAndRestore() async {
     if (_restoring) return;
     _restoring = true;
     try {
       String? travelId = widget.travelId ?? activeTravelIdNotifier.value;
-      String? remoteStatus; // estado del viaje leído remotamente
+      String? remoteStatus; // estado del viaje leÃ­do remotamente
       if (!driverOnTripNotifier.value) {
         if (travelId == null || travelId.isEmpty) {
           if (_driverId != null && _driverId!.isNotEmpty) {
@@ -820,7 +804,6 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                 driverOnTripNotifier.value = remoteStatus == 'in_progress';
               }
             } catch (e) {
-              debugPrint('Error buscando viaje activo en Firestore: $e');
             }
           }
         } else {
@@ -833,12 +816,11 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
               remoteStatus = (snap.data()?['viaje_status'] ?? '').toString();
             }
           } catch (e) {
-            debugPrint('Error leyendo estado del viaje para travelId=$travelId: $e');
           }
         }
       }
       if (travelId == null || travelId.isEmpty) return;
-      try { await _loadTravelData(travelId); } catch (e) { debugPrint('Error cargando datos del viaje en restore: $e'); }
+      try { await _loadTravelData(travelId); } catch (_) {}
       // in_progress: pasajero ya a bordo, conductor en ruta al destino
       final isInProgress = (remoteStatus == 'in_progress');
       const endStatuses = {
@@ -863,10 +845,10 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             _sheetExpanded = false;
           });
         }
-        if (driverOnTripNotifier.value) driverOnTripNotifier.value = false; // paréntesis corregidos
+        if (driverOnTripNotifier.value) driverOnTripNotifier.value = false; // parÃ©ntesis corregidos
       } else {
         // Estados como 'in_progress', 'accepted', 'assigned': mantener _passengerPickedUp = false
-        // y driverOnTripNotifier=false para mostrar botón "Recoger al Pasajero" y ruta hacia pickup.
+        // y driverOnTripNotifier=false para mostrar botÃ³n "Recoger al Pasajero" y ruta hacia pickup.
       }
     } finally {
       _restoring = false;
@@ -878,8 +860,6 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     if (!doc.exists) {
       return null;
     }
-    final data = doc.data() ?? {};
-    print('Travel data: $data');
     return doc;
   }
 
@@ -887,7 +867,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     if (!mounted) return;
     if (_loadingTravelData) return;
     _loadingTravelData = true;
-    // Resetear flags de notificación y throttle de ruta para el nuevo viaje
+    // Resetear flags de notificaciÃ³n y throttle de ruta para el nuevo viaje
     _notifiedDriverNear = false;
     _notifiedDriverArrived = false;
     _checkingProximity = false;
@@ -941,7 +921,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             _passengerPickedUp = false;
           });
         } else {
-          // Estados previos (accepted, driver_near, driver_arrived): mostrar botón "INICIAR VIAJE"
+          // Estados previos (accepted, driver_near, driver_arrived): mostrar botÃ³n "INICIAR VIAJE"
           _safeSetState(() {
             _passengerPickedUp = false;
             _navigating = false;
@@ -1020,9 +1000,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
 
       if (_destinationLatLng != null) {
         // Debug: imprimir coordenadas cargadas para verificar parsing
-        debugPrint('Travel loaded: origin=$_passengerLatLng dest=$_destinationLatLng dropoff=$_dropoffLatLng');
 
-        // Al cargar el viaje, por defecto mostramos la ruta desde la posición del conductor
+        // Al cargar el viaje, por defecto mostramos la ruta desde la posiciÃ³n del conductor
         // hasta el punto de pickup (passenger). Si no existe pickup, usar destination/dropoff.
         try {
           final initialTarget = _passengerLatLng ?? _dropoffLatLng ?? _destinationLatLng;
@@ -1034,20 +1013,18 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             }
           }
         } catch (e) {
-          debugPrint('Error preparando ruta al cargar viaje: $e');
         }
       }
       _safeSetState(() => _sheetExpanded = true);
       _lastLoadedAt[travelId] = DateTime.now();
     } catch (e) {
-      debugPrint('Error _loadTravelData: $e');
     } finally {
       _loadingTravelData = false;
     }
   }
 
   /// Parsea las coordenadas del destino desde un documento de Firestore.
-  /// Centraliza la lógica de búsqueda de campos para reutilizarla sin efectos secundarios.
+  /// Centraliza la lÃ³gica de bÃºsqueda de campos para reutilizarla sin efectos secundarios.
   LatLng? _tryParseDestFromData(Map<String, dynamic> data) {
     LatLng? tryParse(dynamic m) {
       if (m == null) return null;
@@ -1147,26 +1124,24 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
 
   Future<LatLngBounds?> _prepareRouteOnMap(LatLng? driverLocation, LatLng? dest) async {
     if (!mounted) return null;
-    // No limpiar marcadores globalmente en cada llamada, solo actualizar/añadir necesarios.
+    // No limpiar marcadores globalmente en cada llamada, solo actualizar/aÃ±adir necesarios.
     _polylines.clear();
-    // Si el 'dest' que nos pasan es igual a la ubicación del pasajero pero tenemos
-    // un dropoff explícito, preferir el dropoff solo si ya se recogió al pasajero.
+    // Si el 'dest' que nos pasan es igual a la ubicaciÃ³n del pasajero pero tenemos
+    // un dropoff explÃ­cito, preferir el dropoff solo si ya se recogiÃ³ al pasajero.
     if (_passengerPickedUp && dest != null && _dropoffLatLng != null && _passengerLatLng != null) {
       bool equalsPassenger(LatLng a, LatLng b) => _latLngEquals(a, b);
       if (equalsPassenger(dest, _passengerLatLng!)) {
-        debugPrint('prepareRouteOnMap: passenger picked up -> switching dest to dropoff=$_dropoffLatLng');
         dest = _dropoffLatLng;
       }
     }
 
-    debugPrint('Preparing route: driverLocation=$driverLocation dest=$dest passenger=$_passengerLatLng dropoff=$_dropoffLatLng passengerPickedUp=$_passengerPickedUp');
 
     if (driverLocation != null) {
       _markers.removeWhere((m) => m.markerId.value == 'driver');
       _markers.add(Marker(
         markerId: const MarkerId('driver'),
         position: driverLocation,
-        infoWindow: const InfoWindow(title: 'Tú'),
+        infoWindow: const InfoWindow(title: 'TÃº'),
         icon: _driverIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
       ));
     }
@@ -1179,7 +1154,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         icon: _passengerIcon ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
       ));
     } else {
-      // Si está oculto, asegurar que no quede en el set
+      // Si estÃ¡ oculto, asegurar que no quede en el set
       _markers.removeWhere((m) => m.markerId.value == 'passenger');
     }
     if (_dropoffLatLng != null) {
@@ -1204,8 +1179,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       // Forzar render inmediato de la polyline
       if (mounted) setState(() {});
       final bounds = _getBounds(routePoints);
-      // Durante navegación GPS la cámara la controla el stream de posición.
-      // Si el driver está explorando el mapa manualmente tampoco interrumpir.
+      // Durante navegaciÃ³n GPS la cÃ¡mara la controla el stream de posiciÃ³n.
+      // Si el driver estÃ¡ explorando el mapa manualmente tampoco interrumpir.
       if (_mapController != null && bounds != null && !_navigating && !_isUserInteracting()) {
         _programmaticCameraMove = true;
         try {
@@ -1219,7 +1194,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         }
         Future.delayed(const Duration(milliseconds: 250), () => _programmaticCameraMove = false);
       }
-      // Devolver bounds para que el caller pueda ajustar la cámara a un estilo GPS
+      // Devolver bounds para que el caller pueda ajustar la cÃ¡mara a un estilo GPS
       return _getBounds(_polylines.isNotEmpty ? _polylines.first.points : []);
     } else if (driverLocation != null) {
       if (_mapController != null) {
@@ -1251,14 +1226,14 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     );
   }
 
-  // Comparación aproximada de dos LatLng para evitar depender de igualdad exacta
+  // ComparaciÃ³n aproximada de dos LatLng para evitar depender de igualdad exacta
   bool _latLngEquals(LatLng a, LatLng b, {double eps = 1e-6}) {
     return (a.latitude - b.latitude).abs() <= eps && (a.longitude - b.longitude).abs() <= eps;
   }
 
   // Devuelve el objetivo actual para trazar la ruta:
-  // - Antes de iniciar navegación: el pickup (ubicación del pasajero)
-  // - Durante navegación: el dropoff/destination (si existe), o destination como fallback
+  // - Antes de iniciar navegaciÃ³n: el pickup (ubicaciÃ³n del pasajero)
+  // - Durante navegaciÃ³n: el dropoff/destination (si existe), o destination como fallback
   LatLng? _activeRouteTarget() {
     // Solo trazamos hacia el dropoff cuando el pasajero ya fue recogido.
     if (_passengerPickedUp) return _dropoffLatLng ?? _destinationLatLng;
@@ -1310,7 +1285,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     }
 
     final bottomOffset = MediaQuery.of(context).padding.bottom + 5.0;
-    // Altura del panel: responsiva cuando está expandido (porcentaje del alto de pantalla)
+    // Altura del panel: responsiva cuando estÃ¡ expandido (porcentaje del alto de pantalla)
     final screenHeight = MediaQuery.of(context).size.height;
     // Incrementar la altura expandida un 10% sobre el valor base (0.36)
     final baseExpanded = screenHeight * 0.36;
@@ -1320,9 +1295,9 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     return Stack(
       children: [
         GoogleMap(
-          // aplicar estilo limpio aquí
+          // aplicar estilo limpio aquÃ­
           style: _cleanMapStyle,
-          padding: _mapPadding, // aplicar padding dinámico
+          padding: _mapPadding, // aplicar padding dinÃ¡mico
           initialCameraPosition: CameraPosition(
             target: LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
             zoom: 16,
@@ -1332,8 +1307,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           markers: _markers,
           polylines: _polylines,
           onCameraMoveStarted: () {
-            // Si el movimiento no fue iniciado por código, el driver está explorando el mapa.
-            // Pausar seguimiento automático por _userInteractionPauseSecs segundos.
+            // Si el movimiento no fue iniciado por cÃ³digo, el driver estÃ¡ explorando el mapa.
+            // Pausar seguimiento automÃ¡tico por _userInteractionPauseSecs segundos.
             if (!_programmaticCameraMove) {
               _userPanningMap = true;
               _lastUserInteractionAt = DateTime.now();
@@ -1342,7 +1317,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           onMapCreated: (controller) async {
             _mapController = controller;
             await _updateMapPadding();
-            // Evitar múltiple lógica compleja aquí, sólo centrar una vez en la ubicación actual.
+            // Evitar mÃºltiple lÃ³gica compleja aquÃ­, sÃ³lo centrar una vez en la ubicaciÃ³n actual.
             if (_currentPosition != null && !_mapCenteredInitially) {
               try {
                 await _mapController!.moveCamera(CameraUpdate.newLatLngZoom(LatLng(_currentPosition!.latitude, _currentPosition!.longitude), 16));
@@ -1351,23 +1326,23 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             }
           },
         ),
-        // Overlay superior — pill oscuro con distancia al pasajero / destino
+        // Overlay superior â€” pill oscuro con distancia al pasajero / destino
         if ((_passengerLatLng != null || _destinationLatLng != null) && _currentPosition != null)
           Positioned(
             top: MediaQuery.of(context).padding.top + 12,
-            left: 56, // deja espacio para el botón refresh a la derecha
+            left: 56, // deja espacio para el botÃ³n refresh a la derecha
             right: 56,
             child: Center(child: _buildDistancePill()),
           ),
 
-        // Indicador online/offline — esquina superior izquierda
+        // Indicador online/offline â€” esquina superior izquierda
         Positioned(
           top: MediaQuery.of(context).padding.top + 10,
           left: 14,
           child: _buildOnlineStatusBadge(),
         ),
 
-        // Chip de viaje en cola — debajo del pill de distancia
+        // Chip de viaje en cola â€” debajo del pill de distancia
         if (pendingTravelIdNotifier.value != null && pendingTravelIdNotifier.value!.isNotEmpty)
           Positioned(
             top: MediaQuery.of(context).padding.top + 62,
@@ -1376,7 +1351,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             child: Center(child: _buildQueuedTripChip()),
           ),
 
-        // Botón de refresh — esquina superior derecha
+        // BotÃ³n de refresh â€” esquina superior derecha
         Positioned(
           top: MediaQuery.of(context).padding.top + 8,
           right: 10,
@@ -1440,7 +1415,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
 
   Future hidePassengerMarker() async {
     /** Eliminar icono de pasajero en el mapa
-     * para que solo muestre la ruta y la posición del conductor.
+     * para que solo muestre la ruta y la posiciÃ³n del conductor.
      * **/
     _showPassengerMarker = false;
     _markers.removeWhere((m) => m.markerId.value == 'passenger');
@@ -1459,7 +1434,6 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         _mapPadding = EdgeInsets.fromLTRB(12, 12, 12, bottomPadding);
       });
     } catch (e) {
-      debugPrint('updateMapPadding fallback: $e');
     }
   }
 
@@ -1499,7 +1473,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Handle ─────────────────────────────────────────────────────────
+          // â”€â”€ Handle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
           const SizedBox(height: 12),
           Center(
             child: Container(
@@ -1510,7 +1484,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           const SizedBox(height: 16),
 
           if (!hasTravel) ...[
-            // ── Sin viaje ───────────────────────────────────────────────────
+            // â”€â”€ Sin viaje â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Row(
@@ -1527,7 +1501,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             ),
             const SizedBox(height: 16),
           ] else ...[
-            // ── Header: avatar + nombre + estado ────────────────────────────
+            // â”€â”€ Header: avatar + nombre + estado â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Row(
@@ -1559,7 +1533,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                       ],
                     ),
                   ),
-                  // Botón de teléfono
+                  // BotÃ³n de telÃ©fono
                   if (_passengerPhone.isNotEmpty) ...[
                     GestureDetector(
                       onTap: _showPhoneOptions,
@@ -1579,7 +1553,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                     ),
                     const SizedBox(width: 8),
                   ],
-                  // Botón de chat
+                  // BotÃ³n de chat
                   GestureDetector(
                     onTap: _showChatBottomSheet,
                     child: Stack(
@@ -1615,7 +1589,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                     ),
                   ),
                   const SizedBox(width: 8),
-                  // Botón expandir / colapsar
+                  // BotÃ³n expandir / colapsar
                   GestureDetector(
                     onTap: hideOrExpand,
                     child: Container(
@@ -1634,7 +1608,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             if (_sheetExpanded) ...[
               const SizedBox(height: 16),
 
-              // ── Tarjeta de ruta ──────────────────────────────────────────
+              // â”€â”€ Tarjeta de ruta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Container(
@@ -1647,7 +1621,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // Línea visual origen → destino
+                        // LÃ­nea visual origen â†’ destino
                         Column(
                           mainAxisSize: MainAxisSize.max,
                           children: [
@@ -1678,7 +1652,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
               ),
               const SizedBox(height: 10),
 
-              // ── Chip de distancia inline ─────────────────────────────────
+              // â”€â”€ Chip de distancia inline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
               if (_currentPosition != null)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -1686,14 +1660,14 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                 ),
               const SizedBox(height: 12),
 
-              // ── Botón INICIAR VIAJE (solo si no se ha recogido) ──────────
+              // â”€â”€ BotÃ³n INICIAR VIAJE (solo si no se ha recogido) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
               if (!_passengerPickedUp)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: _buildStartTripButton(),
                 ),
 
-              // ── Slide para terminar viaje ────────────────────────────────
+              // â”€â”€ Slide para terminar viaje â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 10, 20, 0),
                 child: ValueListenableBuilder<bool>(
@@ -1713,7 +1687,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
                         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Trip ended (local)')));
                         return;
                       }
-                      // Consultar el status actual antes de decidir qué API usar
+                      // Consultar el status actual antes de decidir quÃ© API usar
                       String currentStatus = '';
                       try {
                         final snap = await FirebaseFirestore.instance.collection('travels').doc(travelId).get();
@@ -1737,7 +1711,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
               ),
               const SizedBox(height: 16),
             ] else ...[
-              // Collapsed: pequeño espaciado inferior
+              // Collapsed: pequeÃ±o espaciado inferior
               const SizedBox(height: 16),
             ],
           ],
@@ -1866,10 +1840,10 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     );
   }
 
-  /// Retorna true si la ubicación actual del conductor está a <= [thresholdMeters] del pasajero.
+  /// Retorna true si la ubicaciÃ³n actual del conductor estÃ¡ a <= [thresholdMeters] del pasajero.
   bool _isNearPassenger({double thresholdMeters = 50}) {
     if (_passengerLatLng == null) return false;
-    if (_currentPosition == null) return false; // no tenemos ubicación real todavía
+    if (_currentPosition == null) return false; // no tenemos ubicaciÃ³n real todavÃ­a
     final dist = Geolocator.distanceBetween(
       _currentPosition!.latitude,
       _currentPosition!.longitude,
@@ -1903,12 +1877,12 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     if (driverOnTripNotifier.value) driverOnTripNotifier.value = false;
     activeTravelIdNotifier.value = null;
 
-    // Si hay un viaje en cola, iniciarlo automáticamente
+    // Si hay un viaje en cola, iniciarlo automÃ¡ticamente
     if (queuedId != null && queuedId.isNotEmpty) {
       pendingTravelIdNotifier.value = null;
       _startQueuedTrip(queuedId);
     } else {
-      // Sin viaje en cola: el driver quedó libre — resetear el contador en Firestore
+      // Sin viaje en cola: el driver quedÃ³ libre â€” resetear el contador en Firestore
       if (_driverId != null && _driverId!.isNotEmpty) {
         FirebaseFirestore.instance
             .collection('drivers')
@@ -1922,7 +1896,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   Future<void> _startQueuedTrip(String queuedId) async {
     if (!mounted) return;
 
-    // Capturar navigator antes del primer await para evitar usar context después de gaps asíncronos
+    // Capturar navigator antes del primer await para evitar usar context despuÃ©s de gaps asÃ­ncronos
     final nav = Navigator.of(context);
 
     // Mostrar popup informativo que se auto-descarta
@@ -1934,16 +1908,15 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     );
 
     try {
-      // El viaje ya está en travels con status 'queued' (lo puso ahí acceptTravel con queueMode:true).
+      // El viaje ya estÃ¡ en travels con status 'queued' (lo puso ahÃ­ acceptTravel con queueMode:true).
       // La CF promoteQueuedTravel lo promueve a 'accepted' y actualiza currentTravelId del driver.
       // activeTripsCount ya fue decrementado por completeTravel al terminar el 1er viaje.
       final driverId = _driverId ?? '';
       if (driverId.isNotEmpty) {
         final ok = await FirebaseActionService.promoteQueuedTravel(queuedId, driverId);
-        if (!ok) debugPrint('[startQueuedTrip] promoteQueuedTravel falló para $queuedId');
+        if (!ok) debugPrint('[startQueuedTrip] promoteQueuedTravel fallÃ³ para $queuedId');
       }
     } catch (e) {
-      debugPrint('Error promoviendo viaje en cola: $e');
     }
 
     await Future.delayed(const Duration(milliseconds: 1600));
@@ -1958,16 +1931,16 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     await _loadTravelData(queuedId);
   }
 
-  /// Método unificado de proximidad.
+  /// MÃ©todo unificado de proximidad.
   /// Garantiza que:
-  ///  1. "driver_near"   se envía UNA sola vez cuando dist ≤ 300 m.
-  ///  2. "driver_arrived" se envía UNA sola vez cuando dist ≤ 40 m.
-  ///  3. "near" siempre se envía ANTES que "arrived".
+  ///  1. "driver_near"   se envÃ­a UNA sola vez cuando dist â‰¤ 300 m.
+  ///  2. "driver_arrived" se envÃ­a UNA sola vez cuando dist â‰¤ 40 m.
+  ///  3. "near" siempre se envÃ­a ANTES que "arrived".
   ///  4. No hay ejecuciones concurrentes (lock local).
   Future<void> _checkProximityAndNotify() async {
-    // Precondiciones rápidas (sin I/O)
+    // Precondiciones rÃ¡pidas (sin I/O)
     if (_checkingProximity) return;
-    if (_passengerPickedUp) return; // ya recogió al pasajero, no notificar
+    if (_passengerPickedUp) return; // ya recogiÃ³ al pasajero, no notificar
     if (_notifiedDriverArrived) return; // ya se enviaron ambas
     if (_passengerLatLng == null || _currentPosition == null) return;
 
@@ -1982,42 +1955,37 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       _passengerLatLng!.longitude,
     );
 
-    // Aún lejos de ambos umbrales → nada que hacer
+    // AÃºn lejos de ambos umbrales â†’ nada que hacer
     if (dist > 300) return;
 
-    // — Bloquear para evitar concurrencia —
+    // â€” Bloquear para evitar concurrencia â€”
     _checkingProximity = true;
     try {
-      // ── Paso 1: Notificar "cerca" (≤ 300 m) ──
+      // â”€â”€ Paso 1: Notificar "cerca" (â‰¤ 300 m) â”€â”€
       if (!_notifiedDriverNear && dist <= 300) {
         final ok = await FirebaseActionService.notifyDriverNear(travelId, driverId);
         if (ok) {
           _notifiedDriverNear = true;
-          debugPrint('✔ notifyDriverNear enviado (dist=${dist.round()} m)');
         } else {
-          debugPrint('✖ notifyDriverNear falló para travel=$travelId');
         }
       }
 
-      // ── Paso 2: Notificar "llegó" (≤ 30 m) — solo si "near" ya fue enviado ──
+      // â”€â”€ Paso 2: Notificar "llegÃ³" (â‰¤ 30 m) â€” solo si "near" ya fue enviado â”€â”€
       if (!_notifiedDriverArrived && _notifiedDriverNear && dist <= 30) {
         final ok = await FirebaseActionService.notifyDriverArrived(travelId, driverId);
         if (ok) {
           _notifiedDriverArrived = true;
-          debugPrint('✔ notifyDriverArrived enviado (dist=${dist.round()} m)');
         } else {
-          debugPrint('✖ notifyDriverArrived falló para travel=$travelId');
         }
       }
     } catch (e) {
-      debugPrint('Error en _checkProximityAndNotify: $e');
     } finally {
       _checkingProximity = false;
     }
   }
 
-  /// Se ejecuta una sola vez, 10 s después de entrar a TravelScreen.
-  /// Solo actúa si no hay ningún viaje activo ni cargado en pantalla.
+  /// Se ejecuta una sola vez, 10 s despuÃ©s de entrar a TravelScreen.
+  /// Solo actÃºa si no hay ningÃºn viaje activo ni cargado en pantalla.
   /// Llama a la Cloud Function para rescatar notificaciones pendientes no mostradas.
   Future<void> _claimPendingBackgroundMessage() async {
     // Condiciones de salida: ya hay viaje activo o cargado
@@ -2035,10 +2003,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       final travelId = await FirebaseActionService.claimPendingBackgroundMessage(_driverId!);
       if (travelId == null || travelId.isEmpty) return;
       if (!mounted) return;
-      debugPrint('[PendingCheck] Notificación rescatada → travelId=$travelId');
       showTravelRequestDialog(ctx, travelId, null);
     } catch (e) {
-      debugPrint('[PendingCheck] Error: $e');
     }
   }
 
@@ -2054,7 +2020,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   }
 
   /// Resuelve el ID real del documento del driver consultando Firestore por fullphone,
-  /// luego inicia el servicio de ubicación con el ID correcto.
+  /// luego inicia el servicio de ubicaciÃ³n con el ID correcto.
   Future<void> _resolveDriverIdAndStart(User user) async {
     final phone = user.phoneNumber ?? '';
     if (phone.isNotEmpty) {
@@ -2069,7 +2035,6 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
           _driverId = driverDocId;
         }
       } catch (e) {
-        debugPrint('Error resolviendo driverDocId: $e');
       }
     }
     _driverId ??= user.uid; // fallback: si la query falla, usar uid y arriesgarse
@@ -2096,7 +2061,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     });
   }
 
-  /// Intenta obtener la ubicación actual del dispositivo, solicitando permisos si es necesario.
+  /// Intenta obtener la ubicaciÃ³n actual del dispositivo, solicitando permisos si es necesario.
   Future<void> _getCurrentLocation() async {
     if (!mounted) return;
     _safeSetState(() {
@@ -2151,7 +2116,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       });
       final travelId = widget.travelId ?? activeTravelIdNotifier.value;
       if (travelId != null && travelId.isNotEmpty) {
-        // Hay un travelId conocido: cargar o restaurar según estado
+        // Hay un travelId conocido: cargar o restaurar segÃºn estado
         if (driverOnTripNotifier.value) {
           await _checkActiveTripAndRestore();
         } else {
@@ -2159,11 +2124,10 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         }
       } else {
         // Sin travelId conocido: buscar en Firestore por si hay viaje activo.
-        // Cubre el caso de inicio en frío o reinstalación.
+        // Cubre el caso de inicio en frÃ­o o reinstalaciÃ³n.
         await _checkActiveTripAndRestore();
       }
     } catch (e) {
-      debugPrint('_getCurrentLocation error: $e');
       if (!mounted) return;
       _safeSetState(() {
         _loadingLocation = false;
@@ -2172,7 +2136,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     }
   }
 
-  /// Abre ajustes de ubicación del sistema si es posible.
+  /// Abre ajustes de ubicaciÃ³n del sistema si es posible.
   Future<void> _openLocationSettings() async {
     try {
       final opened = await Geolocator.openLocationSettings();
@@ -2180,7 +2144,6 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open location settings')));
       }
     } catch (e) {
-      debugPrint('_openLocationSettings error: $e');
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error opening location settings')));
     }
   }
@@ -2193,7 +2156,6 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not open app settings')));
       }
     } catch (e) {
-      debugPrint('_openAppSettings error: $e');
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error opening app settings')));
     }
   }
@@ -2203,10 +2165,10 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     _mapCenteredInitially = true;
   }
 
-  // ── Refresh manual ────────────────────────────────────────────────────────
+  // â”€â”€ Refresh manual â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  /// Fuerza una restauración completa del viaje activo desde Firestore.
-  /// El driver puede usar esto si algo se desfasó visualmente.
+  /// Fuerza una restauraciÃ³n completa del viaje activo desde Firestore.
+  /// El driver puede usar esto si algo se desfasÃ³ visualmente.
   Future<void> _refresh() async {
     if (_refreshing) return;
     _safeSetState(() => _refreshing = true);
@@ -2222,7 +2184,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         await _loadTravelData(travelId);
       }
 
-      // 3. Actualizar la ubicación del driver
+      // 3. Actualizar la ubicaciÃ³n del driver
       if (_currentPosition != null) {
         _driverLatLng = LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
         _updateDriverMarker();
@@ -2234,16 +2196,15 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         await _prepareRouteOnMap(_driverLatLng, target);
       }
 
-      // 5. Safety net: si isOnline quedó en false por algún fallo, corregirlo
+      // 5. Safety net: si isOnline quedÃ³ en false por algÃºn fallo, corregirlo
       await _ensureOnline();
     } catch (e) {
-      debugPrint('_refresh error: $e');
     } finally {
       if (mounted) _safeSetState(() => _refreshing = false);
     }
   }
 
-  /// Verifica si isOnline está en false y lo corrige a true.
+  /// Verifica si isOnline estÃ¡ en false y lo corrige a true.
   /// Se llama desde _refresh() como safety net ante fallos del sistema de presencia.
   Future<void> _ensureOnline() async {
     final docId = _driverId ?? driverDocId;
@@ -2258,16 +2219,14 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             .collection('drivers')
             .doc(docId)
             .update({'isOnline': true});
-        debugPrint('[Presence] isOnline corregido a true vía refresh');
       }
     } catch (e) {
-      debugPrint('[Presence] _ensureOnline error: $e');
     }
   }
 
-  // ── Helpers de UI ─────────────────────────────────────────────────────────
+  // â”€â”€ Helpers de UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  /// Avatar del pasajero con iniciales y color determinístico.
+  /// Avatar del pasajero con iniciales y color determinÃ­stico.
   Widget _buildPassengerAvatar({double radius = 22}) {
     final name = _passengerName.trim().isNotEmpty ? _passengerName : 'P';
     final initials = name.split(' ').map((w) => w.isNotEmpty ? w[0] : '').take(2).join().toUpperCase();
@@ -2280,8 +2239,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     );
   }
 
-  /// Chip ámbar que indica que hay un 2do viaje esperando en cola.
-  /// Carga el vehículo activo (on: true) del documento del driver en Firestore.
+  /// Chip Ã¡mbar que indica que hay un 2do viaje esperando en cola.
+  /// Carga el vehÃ­culo activo (on: true) del documento del driver en Firestore.
   Future<void> _loadActiveVehicle() async {
     if (_driverId == null || _driverId!.isEmpty) return;
     try {
@@ -2300,17 +2259,16 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             });
             // Actualizar label global para el tab de viaje
             final parts = [model, plate].where((s) => s.isNotEmpty);
-            activeVehicleLabelNotifier.value = parts.isNotEmpty ? parts.join(' · ') : '';
+            activeVehicleLabelNotifier.value = parts.isNotEmpty ? parts.join(' Â· ') : '';
           }
         });
       }
     } catch (e) {
-      debugPrint('Error cargando vehículo activo: $e');
     }
   }
 
   Widget _buildQueuedTripChip() {
-    final name = _pendingPassengerName.isNotEmpty ? ' · $_pendingPassengerName' : '';
+    final name = _pendingPassengerName.isNotEmpty ? ' Â· $_pendingPassengerName' : '';
     return GestureDetector(
       onTap: _showQueuedTripSheet,
       child: Container(
@@ -2339,7 +2297,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     );
   }
 
-  /// Muestra un sheet con la info mínima del viaje en cola.
+  /// Muestra un sheet con la info mÃ­nima del viaje en cola.
   void _showQueuedTripSheet() {
     final id = pendingTravelIdNotifier.value;
     if (id == null || id.isEmpty) return;
@@ -2429,7 +2387,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     );
   }
 
-  /// Chip de distancia dentro del panel inferior (más detallado que el pill).
+  /// Chip de distancia dentro del panel inferior (mÃ¡s detallado que el pill).
   Widget _buildInlineDistanceChip() {
     if (_currentPosition == null) return const SizedBox.shrink();
     const double mpm = 1609.344;   // meters per mile
@@ -2486,7 +2444,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     );
   }
 
-  /// Botón "INICIAR VIAJE": activado solo cuando el driver está a ≤ 30 m del pasajero.
+  /// BotÃ³n "INICIAR VIAJE": activado solo cuando el driver estÃ¡ a â‰¤ 30 m del pasajero.
   Widget _buildStartTripButton() {
     final near = _isNearPassenger(thresholdMeters: 30);
     return GestureDetector(
@@ -2514,7 +2472,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             Icon(Icons.play_arrow_rounded, color: near ? _tsCardBg : _tsTextMuted, size: 22),
             const SizedBox(width: 8),
             Text(
-              near ? 'START TRIP' : 'START TRIP  —  get closer to the passenger',
+              near ? 'START TRIP' : 'START TRIP  â€”  get closer to the passenger',
               style: TextStyle(fontSize: near ? 15 : 12, fontWeight: FontWeight.w700, color: near ? _tsCardBg : _tsTextMuted, letterSpacing: 0.4),
             ),
           ],
@@ -2525,7 +2483,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
 
 }
 
-// ── Dialog que aparece al iniciar automáticamente el viaje en cola ────────────
+// â”€â”€ Dialog que aparece al iniciar automÃ¡ticamente el viaje en cola â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _StartingQueuedTripDialog extends StatelessWidget {
   const _StartingQueuedTripDialog();
 
@@ -2553,7 +2511,7 @@ class _StartingQueuedTripDialog extends StatelessWidget {
   }
 }
 
-// ── Sheet con info mínima del viaje en cola (al tocar el chip) ────────────────
+// â”€â”€ Sheet con info mÃ­nima del viaje en cola (al tocar el chip) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _QueuedTripInfoSheet extends StatefulWidget {
   final String travelId;
   const _QueuedTripInfoSheet({required this.travelId});
@@ -2737,7 +2695,7 @@ class _QueuedTripInfoSheetState extends State<_QueuedTripInfoSheet> {
   }
 }
 
-// Implementación local de CustomSlideAction (swipe to confirm) para terminar viaje
+// ImplementaciÃ³n local de CustomSlideAction (swipe to confirm) para terminar viaje
 class CustomSlideAction extends StatefulWidget {
   final Future<void> Function()? onSubmit;
   final String text;
@@ -2815,7 +2773,7 @@ class _CustomSlideActionState extends State<CustomSlideAction> with SingleTicker
           });
         }
       }
-      // Si llegó hasta aquí y no hubo excepción, mantener el check y detener el loading
+      // Si llegÃ³ hasta aquÃ­ y no hubo excepciÃ³n, mantener el check y detener el loading
       if (mounted) setState(() => _loading = false);
     } else {
       _animateTo(0);
@@ -2823,7 +2781,7 @@ class _CustomSlideActionState extends State<CustomSlideAction> with SingleTicker
     }
   }
 
-  bool _loading = false; // indica que la acción está en progreso
+  bool _loading = false; // indica que la acciÃ³n estÃ¡ en progreso
 
   @override
   Widget build(BuildContext context) {
@@ -2849,7 +2807,7 @@ class _CustomSlideActionState extends State<CustomSlideAction> with SingleTicker
               left: 8 + _dx,
               child: GestureDetector(
                 onHorizontalDragUpdate: (details) {
-                  // bloquear interacción si ya está en progreso
+                  // bloquear interacciÃ³n si ya estÃ¡ en progreso
                   if (_locked || _submitted || _loading) return;
                   setState(() {
                     _dx = (_dx + details.delta.dx).clamp(0.0, _maxDx);
@@ -2889,7 +2847,7 @@ class _CustomSlideActionState extends State<CustomSlideAction> with SingleTicker
   }
 }
 
-// ── Driver Chat Sheet ──────────────────────────────────────────────────────
+// â”€â”€ Driver Chat Sheet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class _DriverChatSheet extends StatefulWidget {
   final String travelId;
@@ -2933,11 +2891,8 @@ class _DriverChatSheetState extends State<_DriverChatSheet> {
     setState(() => _sending = true);
     _textController.clear();
     try {
-      debugPrint('[Chat] Enviando → travelId=${widget.travelId} uid=${widget.currentUserId} text="$text"');
       await ChatService.sendMessage(widget.travelId, text);
-      debugPrint('[Chat] Enviado OK');
-    } catch (e, st) {
-      debugPrint('[Chat] ERROR al enviar: $e\n$st');
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -2999,7 +2954,6 @@ class _DriverChatSheetState extends State<_DriverChatSheet> {
               stream: ChatService.messagesStream(widget.travelId),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
-                  debugPrint('[Chat] StreamBuilder error: ${snapshot.error}');
                   return Center(
                     child: Padding(
                       padding: const EdgeInsets.all(24),
@@ -3042,7 +2996,7 @@ class _DriverChatSheetState extends State<_DriverChatSheet> {
                     final msg        = docs[index].data();
                     final senderType = msg['senderType'] as int?;
                     // senderType 2 = driver (yo), 1 = pasajero
-                    // Fallback a senderId si el campo aún no está escrito
+                    // Fallback a senderId si el campo aÃºn no estÃ¡ escrito
                     final isMe = senderType != null
                         ? senderType == 2
                         : msg['senderId'] == widget.currentUserId;
@@ -3053,7 +3007,7 @@ class _DriverChatSheetState extends State<_DriverChatSheet> {
               },
             ),
           ),
-          // Respuestas rápidas
+          // Respuestas rÃ¡pidas
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),

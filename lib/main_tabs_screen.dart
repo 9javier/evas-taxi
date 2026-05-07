@@ -55,21 +55,15 @@ class _MainTabsScreenState extends State<MainTabsScreen> with WidgetsBindingObse
         }
       }
 
-      if (driverDocId == null) {
-        debugPrint('[FCM] No se pudo resolver driverDocId — token no actualizado');
-        return;
-      }
+      if (driverDocId == null) return;
 
       await FirebaseFirestore.instance
           .collection('drivers')
           .doc(driverDocId)
           .update({'fcmToken': token});
-      debugPrint('[FCM] Token actualizado en doc $driverDocId');
       // Iniciar presencia RTDB una vez que driverDocId está confirmado
       await DriverPresenceService.instance.start(driverDocId!);
-    } catch (e) {
-      debugPrint('[FCM] Error actualizando token: $e');
-    }
+    } catch (_) {}
   }
 
   @override
@@ -212,9 +206,7 @@ class _MainTabsScreenState extends State<MainTabsScreen> with WidgetsBindingObse
         showTravelRequestDialog(freshCtx, travelId, null);
         return; // mostrar de a uno por vez
       }
-    } catch (e) {
-      debugPrint('[checkPendingTrip] Error: $e');
-    }
+    } catch (_) {}
   }
 
   Future<void> _restoreActiveTravelIfAny() async {
@@ -267,7 +259,6 @@ class _MainTabsScreenState extends State<MainTabsScreen> with WidgetsBindingObse
         if (queuedQ.docs.isNotEmpty &&
             (pendingTravelIdNotifier.value == null || pendingTravelIdNotifier.value!.isEmpty)) {
           pendingTravelIdNotifier.value = queuedQ.docs.first.id;
-          debugPrint('[restore] Viaje en cola restaurado: ${queuedQ.docs.first.id}');
         }
       } catch (_) {}
     } catch (e) {

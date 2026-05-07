@@ -795,9 +795,7 @@ class _MapPreviewState extends State<MapPreview> {
       if (byteData != null && mounted) {
         _originIcon = BitmapDescriptor.bytes(byteData.buffer.asUint8List());
       }
-    } catch (e) {
-      debugPrint('Error cargando passenger.png en MapPreview: $e');
-    }
+    } catch (_) {}
 
     // Cargar destino.svg para el destino
     try {
@@ -806,9 +804,7 @@ class _MapPreviewState extends State<MapPreview> {
       if (bytes != null && mounted) {
         _destinationIcon = BitmapDescriptor.bytes(bytes);
       }
-    } catch (e) {
-      debugPrint('Error cargando destino.svg en MapPreview: $e');
-    }
+    } catch (_) {}
   }
 
   Future<Uint8List?> _getSvgBytes(String path, int size, double dpr) async {
@@ -840,8 +836,7 @@ class _MapPreviewState extends State<MapPreview> {
       overlay.remove();
       try { image.dispose(); } catch (_) {}
       return bytes;
-    } catch (e) {
-      debugPrint('Error renderizando SVG en MapPreview: $e');
+    } catch (_) {
       return null;
     }
   }
