@@ -334,9 +334,9 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(6, (i) {
         return Container(
-          width: 44,
+          width: 50,
           height: 70,
-          margin: const EdgeInsets.symmetric(horizontal: 4),
+          margin: const EdgeInsets.symmetric(horizontal: 3),
           child: TextField(
             controller: _boxes[i],
             focusNode: _nodes[i],
@@ -346,7 +346,7 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             style: const TextStyle(
               color: _kText,
-              fontSize: 24,
+              fontSize: 22,
               fontWeight: FontWeight.w700,
             ),
             decoration: InputDecoration(

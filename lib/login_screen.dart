@@ -301,7 +301,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
         GestureDetector(
           onTap: _pickCountry,
           child: Container(
-            height: 61,
+            height: 55,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
               color: _kCard,
