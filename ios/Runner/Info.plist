@@ -48,6 +48,21 @@
 	<!-- Google Maps API Key: Pega tu API key aquí -->
 	<key>GMSApiKey</key>
 	<string>AIzaSyDElBu8oLUbkYFD4ptEy-6vpIfxaTOK3Xs</string>
+	<!-- Firebase Auth URL scheme (REVERSED_CLIENT_ID de GoogleService-Info.plist)     -->
+	<!-- Reemplaza el valor de CFBundleURLSchemes con tu REVERSED_CLIENT_ID real.       -->
+	<!-- Lo encuentras en Firebase Console → Project Settings → tu app iOS → descarga  -->
+	<!-- el GoogleService-Info.plist y copia el valor de la llave REVERSED_CLIENT_ID.  -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.628462975918-ddonnol9am624mmsilbkjgudm5jvr6id</string>
+			</array>
+		</dict>
+	</array>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Necesitamos tu ubicación para mostrar el mapa.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>

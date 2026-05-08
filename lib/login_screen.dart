@@ -112,10 +112,12 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
             return;
           }
 
-          final fcmToken = await FirebaseMessaging.instance.getToken();
-          if (fcmToken != null) {
-            await query.docs.first.reference.update({'fcmToken': fcmToken});
-          }
+          try {
+            final fcmToken = await FirebaseMessaging.instance.getToken();
+            if (fcmToken != null) {
+              await query.docs.first.reference.update({'fcmToken': fcmToken});
+            }
+          } catch (_) {}
           skipAuthNavigation = false;
           if (!mounted) return;
           Navigator.of(context).pushAndRemoveUntil(

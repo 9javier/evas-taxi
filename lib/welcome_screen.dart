@@ -73,8 +73,12 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     });
 
     try {
-      // Verificar internet y luego permisos de ubicación
+      // Verificar internet y luego permisos de ubicación.
+      // El delay evita el crash nativo de iOS cuando requestPermission() intenta
+      // presentar un UIAlertController mientras la animación de navegación aún corre.
       await checkInternetAndShow(context);
+      if (!mounted) return;
+      await Future.delayed(const Duration(milliseconds: 600));
       if (!mounted) return;
       await checkAndRequestLocationPermission(context);
       if (!mounted) return;

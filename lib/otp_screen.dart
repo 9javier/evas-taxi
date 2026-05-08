@@ -139,10 +139,14 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
     driverDocId = query.docs.first.id;
 
     // Conductor encontrado — actualizar token FCM y entrar.
-    final fcmToken = await FirebaseMessaging.instance.getToken();
-    if (fcmToken != null) {
-      await query.docs.first.reference.update({'fcmToken': fcmToken});
-    }
+    // getToken() puede lanzar excepción nativa en iOS simulator (sin APNs);
+    // se aísla para que un fallo aquí no bloquee la navegación.
+    try {
+      final fcmToken = await FirebaseMessaging.instance.getToken();
+      if (fcmToken != null) {
+        await query.docs.first.reference.update({'fcmToken': fcmToken});
+      }
+    } catch (_) {}
 
     skipAuthNavigation = false;
     if (!mounted) return;
