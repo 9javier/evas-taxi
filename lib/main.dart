@@ -66,9 +66,13 @@ Future<void> main() async {
     WidgetsFlutterBinding.ensureInitialized();
 
     debugLog += "\n2. Inicializando Firebase...";
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+    try {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    } on FirebaseException catch (e) {
+      if (e.code != 'duplicate-app') rethrow;
+    }
 
     debugLog += "\n3. Firebase OK. Configurando ForegroundTask...";
     FlutterForegroundTask.init(
@@ -162,6 +166,7 @@ Future<void> main() async {
 
   } catch (e, stack) {
     debugLog += "\n🔥 ERROR CRÍTICO: $e";
+    var log = "LOG DE ERROR:\n$debugLog\n\nSTACK:\n$stack";
     runApp(MaterialApp(
       debugShowCheckedModeBanner: false,
       home: Scaffold(
@@ -170,7 +175,7 @@ Future<void> main() async {
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
             child: Text(
-              "LOG DE ERROR:\n$debugLog\n\nSTACK:\n$stack",
+              log,
               style: const TextStyle(color: Colors.red, fontSize: 12),
             ),
           ),
