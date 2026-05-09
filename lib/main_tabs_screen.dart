@@ -186,9 +186,6 @@ class _MainTabsScreenState extends State<MainTabsScreen> with WidgetsBindingObse
         final receivedAt = doc.data()['receivedAt'];
         if (receivedAt is Timestamp && receivedAt.toDate().isBefore(cutoff.toDate())) continue;
 
-        // Marcar como procesado de inmediato para evitar doble procesamiento
-        await doc.reference.update({'processed': true});
-
         final raw = doc.data()['data'];
         if (raw is! Map) continue;
 
@@ -201,7 +198,10 @@ class _MainTabsScreenState extends State<MainTabsScreen> with WidgetsBindingObse
         if (!NotificationGuard.tryAdd(travelId)) continue;
 
         final freshCtx = navigatorKey.currentContext;
-        if (freshCtx == null || !freshCtx.mounted) return;
+        if (freshCtx == null || !freshCtx.mounted) continue;
+
+        // Marcar como procesado solo cuando todos los guards pasan y el dialog se va a mostrar
+        await doc.reference.update({'processed': true});
 
         showTravelRequestDialog(freshCtx, travelId, null);
         return; // mostrar de a uno por vez

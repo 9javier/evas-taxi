@@ -192,20 +192,25 @@ Future<void> showTravelRequestDialog(BuildContext context, String travelId, Stri
     return;
   }
 
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    barrierColor: Colors.black.withOpacity(0.6),
-    builder: (context) => _TravelRequestSheet(
-      travelId: travelId,
-      passengerName: passengerName,
-      originDesc: originDesc,
-      destinoDesc: destinoDesc,
-      originLatLng: originLatLng,
-      destLatLng: destLatLng,
-      isQueueMode: isQueueMode,
-    ),
-  );
+  try {
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.6),
+      builder: (context) => _TravelRequestSheet(
+        travelId: travelId,
+        passengerName: passengerName,
+        originDesc: originDesc,
+        destinoDesc: destinoDesc,
+        originLatLng: originLatLng,
+        destLatLng: destLatLng,
+        isQueueMode: isQueueMode,
+      ),
+    );
+  } finally {
+    // Seguridad adicional: liberar el flag cuando el dialog cierra o falla
+    travelDialogActive = false;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -280,6 +285,8 @@ class _TravelRequestSheetState extends State<_TravelRequestSheet> with SingleTic
 
   @override
   void dispose() {
+    // Garantiza que el flag se libere aunque el widget se destruya sin _dismiss()
+    travelDialogActive = false;
     _countdownController.dispose();
     _ticker?.cancel();
     super.dispose();

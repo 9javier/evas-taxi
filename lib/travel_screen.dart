@@ -16,6 +16,8 @@ import 'config.dart';
 import 'driver_location_service.dart';
 import 'firebase_action_service.dart';
 import 'travel_notification_handler.dart';
+import 'notification_center.dart';
+import 'notification_guard.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart'
@@ -64,6 +66,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   final _driverLocationService = DriverLocationService();
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<DocumentSnapshot>? _onlineStatusSub;
+  StreamSubscription<QuerySnapshot>? _bgMsgSub;
+  Timer? _bgMsgDelayTimer;
   bool? _isOnline;
   DateTime? _lastRouteUpdatedAt;
   DateTime? _lastCameraUpdatedAt;
@@ -187,6 +191,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       _driverLocationService.start(driverId: _driverId!, distanceFilter: 20, minIntervalSeconds: 10);
       _loadActiveVehicle();
       _subscribeOnlineStatus();
+      _subscribeBackgroundMessages(_driverId!);
     } else {
       // App reiniciada sin pasar por login â€” resolver el ID por query antes de iniciar.
       _resolveDriverIdAndStart(user);
@@ -299,6 +304,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     chatNewMessageNotifier.removeListener(_onChatNewMessage);
     tabsIndexNotifier.removeListener(_onTabChanged);
     _pendingCheckTimer?.cancel();
+    _bgMsgDelayTimer?.cancel();
+    _bgMsgSub?.cancel();
     _onlineStatusSub?.cancel();
     // Detener servicio de ubicaciÃ³n al cerrar la pantalla
     _driverLocationService.stop();
@@ -2043,6 +2050,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       _driverLocationService.start(driverId: _driverId!, distanceFilter: 20, minIntervalSeconds: 10);
       _loadActiveVehicle();
       _subscribeOnlineStatus();
+      _subscribeBackgroundMessages(_driverId!);
     }
   }
 
@@ -2060,6 +2068,71 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         _safeSetState(() => _isOnline = online);
       }
     });
+  }
+
+  // ── Suscripción de respaldo a background_messages ─────────────────────────
+  // Solo se activa si FCM no entregó la notificación (lock, inactividad, etc.).
+  // Eficiente: Firestore solo envía docs nuevos con processed=false para este driver.
+  void _subscribeBackgroundMessages(String driverId) {
+    _bgMsgSub?.cancel();
+    _bgMsgSub = FirebaseFirestore.instance
+        .collection('background_messages')
+        .where('driverId', isEqualTo: driverId)
+        .where('processed', isEqualTo: false)
+        .snapshots()
+        .listen((snapshot) {
+      for (final change in snapshot.docChanges) {
+        if (change.type != DocumentChangeType.added) continue;
+        final data = change.doc.data();
+        if (data != null) _scheduleBgMsgCheck(change.doc.reference, data);
+      }
+    });
+  }
+
+  void _scheduleBgMsgCheck(DocumentReference ref, Map<String, dynamic> data) {
+    if (data['type']?.toString() != 'NEW_TRAVEL') return;
+
+    final travelId =
+        (data['travelId'] ?? data['travelID'] ?? data['travelid'])?.toString() ?? '';
+    if (travelId.isEmpty) return;
+
+    // Validar antigüedad: ignorar si el doc tiene más de 5 minutos
+    final receivedAtRaw = data['receivedAt'];
+    DateTime? receivedAt;
+    if (receivedAtRaw is Timestamp) {
+      receivedAt = receivedAtRaw.toDate();
+    } else if (receivedAtRaw is String) {
+      receivedAt = DateTime.tryParse(receivedAtRaw);
+    }
+    if (receivedAt == null) return;
+    if (DateTime.now().difference(receivedAt).abs().inMinutes >= 5) return;
+
+    // Dar 11s de ventaja a FCM push antes de actuar como respaldo
+    _bgMsgDelayTimer?.cancel();
+    _bgMsgDelayTimer = Timer(
+      const Duration(seconds: 11),
+      () => _showFromBgMsg(ref, travelId),
+    );
+  }
+
+  Future<void> _showFromBgMsg(DocumentReference ref, String travelId) async {
+    if (!mounted) return;
+    if (travelDialogActive) return;
+    if (!NotificationGuard.tryAdd(travelId)) return;
+
+    // Re-verificar: si FCM ya lo procesó en los 11s no mostrar
+    try {
+      final fresh = await ref.get();
+      final freshData = fresh.data() as Map<String, dynamic>?;
+      if (freshData == null || freshData['processed'] == true) return;
+      await ref.update({'processed': true});
+    } catch (_) {
+      return;
+    }
+
+    final ctx = navigatorKey.currentContext;
+    if (ctx == null || !ctx.mounted) return;
+    showTravelRequestDialog(ctx, travelId, null);
   }
 
   /// Intenta obtener la ubicaciÃ³n actual del dispositivo, solicitando permisos si es necesario.
