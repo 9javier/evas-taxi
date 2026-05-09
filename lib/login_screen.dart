@@ -112,6 +112,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
             return;
           }
 
+          driverDocId = query.docs.first.id;
           try {
             final fcmToken = await FirebaseMessaging.instance.getToken();
             if (fcmToken != null) {

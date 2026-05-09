@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -120,6 +121,33 @@ Future<void> main() async {
     );
 
     registerPendingHandler(handleTravelNotification);
+
+    // Actualizar el token FCM en Firestore cada vez que Firebase lo rota.
+    // Esto cubre el escenario de cierre de sesión + re-autenticación, donde
+    // FCM puede generar un token nuevo que getToken() aún no refleja.
+    FirebaseMessaging.instance.onTokenRefresh.listen((String newToken) async {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      try {
+        String? docId = driverDocId;
+        if (docId == null) {
+          final phone = user.phoneNumber ?? '';
+          if (phone.isEmpty) return;
+          final q = await FirebaseFirestore.instance
+              .collection('drivers')
+              .where('fullphone', isEqualTo: phone)
+              .limit(1)
+              .get();
+          if (q.docs.isEmpty) return;
+          docId = q.docs.first.id;
+          driverDocId = docId;
+        }
+        await FirebaseFirestore.instance
+            .collection('drivers')
+            .doc(docId)
+            .update({'fcmToken': newToken});
+      } catch (_) {}
+    });
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       final data = message.data;
