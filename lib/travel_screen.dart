@@ -928,10 +928,11 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             _passengerPickedUp = false;
           });
         } else {
-          // Estados previos (accepted, driver_near, driver_arrived): mostrar botÃ³n "INICIAR VIAJE"
+          // Estados previos (accepted, driver_near, driver_arrived): mostrar botón "INICIAR VIAJE"
           _safeSetState(() {
             _passengerPickedUp = false;
             _navigating = false;
+            _showPassengerMarker = true; // garantizar visibilidad del marcador antes del pickup
           });
           if (driverOnTripNotifier.value) driverOnTripNotifier.value = false;
         }
@@ -1730,7 +1731,8 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
 
   void hideOrExpand() {
     setState(() => _sheetExpanded = !_sheetExpanded);
-    hidePassengerMarker();
+    // Solo ocultar el marcador del pasajero si ya fue recogido (in_progress)
+    if (_passengerPickedUp) hidePassengerMarker();
     _updateMapPadding();
   }
 
@@ -2270,12 +2272,36 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         await _prepareRouteOnMap(_driverLatLng, target);
       }
 
-      // 5. Safety net: si isOnline quedÃ³ en false por algÃºn fallo, corregirlo
+      // 5. Verificar y restaurar marcador del pasajero según viaje_status en Firestore
+      await _restorePassengerMarkerIfNeeded();
+
+      // 6. Safety net: si isOnline quedó en false por algún fallo, corregirlo
       await _ensureOnline();
     } catch (e) {
     } finally {
       if (mounted) _safeSetState(() => _refreshing = false);
     }
+  }
+
+  /// Consulta viaje_status en Firestore y restaura el marcador del pasajero
+  /// si el viaje está en una fase pre-pickup (accepted, driver_near, driver_arrived).
+  Future<void> _restorePassengerMarkerIfNeeded() async {
+    final travelId = widget.travelId ?? activeTravelIdNotifier.value;
+    if (travelId == null || travelId.isEmpty) return;
+    if (_passengerLatLng == null) return;
+    try {
+      final doc = await FirebaseFirestore.instance.collection('travels').doc(travelId).get();
+      if (!doc.exists) return;
+      final status = (doc.data()?['viaje_status'] ?? '').toString().toLowerCase();
+      const prePickup = {'accepted', 'driver_near', 'driver_arrived'};
+      if (prePickup.contains(status)) {
+        _safeSetState(() {
+          _showPassengerMarker = true;
+          _passengerPickedUp = false;
+        });
+        _updatePassengerMarker();
+      }
+    } catch (_) {}
   }
 
   /// Verifica si isOnline estÃ¡ en false y lo corrige a true.
