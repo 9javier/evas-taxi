@@ -2546,7 +2546,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
             Icon(Icons.play_arrow_rounded, color: near ? _tsCardBg : _tsTextMuted, size: 22),
             const SizedBox(width: 8),
             Text(
-              near ? 'START TRIP' : 'START TRIP  â€”  get closer to the passenger',
+              near ? 'START TRIP' : 'get closer to the passenger',
               style: TextStyle(fontSize: near ? 15 : 12, fontWeight: FontWeight.w700, color: near ? _tsCardBg : _tsTextMuted, letterSpacing: 0.4),
             ),
           ],
