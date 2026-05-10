@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -139,20 +140,115 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
     driverDocId = query.docs.first.id;
 
     // Conductor encontrado — actualizar token FCM y entrar.
-    // getToken() puede lanzar excepción nativa en iOS simulator (sin APNs);
-    // se aísla para que un fallo aquí no bloquee la navegación.
-    try {
-      final fcmToken = await FirebaseMessaging.instance.getToken();
-      if (fcmToken != null) {
-        await query.docs.first.reference.update({'fcmToken': fcmToken});
-      }
-    } catch (_) {}
+    await _updateFcmTokenWithDiagnostics(query.docs.first.reference);
 
     skipAuthNavigation = false;
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => WelcomeScreen(phoneNumber: user.phoneNumber ?? '')),
       (route) => false,
+    );
+  }
+
+  // ── Diagnóstico FCM (temporal — remover cuando el bug esté resuelto) ─────────
+
+  Future<void> _updateFcmTokenWithDiagnostics(DocumentReference driverRef) async {
+    final buf = StringBuffer();
+    buf.writeln('Platform: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
+
+    // 1. Verificar permisos FCM
+    try {
+      final settings = await FirebaseMessaging.instance.getNotificationSettings();
+      buf.writeln('Permission status: ${settings.authorizationStatus}');
+    } catch (e) {
+      buf.writeln('Permission check error: $e');
+    }
+
+    // 2. En iOS verificar APNs token primero (root cause más frecuente)
+    if (Platform.isIOS) {
+      try {
+        final apns = await FirebaseMessaging.instance.getAPNSToken();
+        buf.writeln('APNs token: ${apns != null ? "OK (${apns.substring(0, 8)}...)" : "NULL ⚠️"}');
+      } catch (e) {
+        buf.writeln('APNs token error: $e (${e.runtimeType})');
+      }
+    }
+
+    // 3. Obtener FCM token
+    String? fcmToken;
+    try {
+      fcmToken = await FirebaseMessaging.instance.getToken();
+      buf.writeln('FCM token: ${fcmToken != null ? "OK (${fcmToken.substring(0, 12)}...)" : "NULL ⚠️"}');
+    } catch (e) {
+      buf.writeln('FCM getToken() error: $e (${e.runtimeType})');
+    }
+
+    // 4. Guardar en Firestore si lo obtuvimos
+    if (fcmToken != null) {
+      try {
+        await driverRef.update({'fcmToken': fcmToken});
+        buf.writeln('Firestore update: OK ✅');
+      } catch (e) {
+        buf.writeln('Firestore update error: $e (${e.runtimeType})');
+      }
+    }
+
+    // Mostrar diagnóstico si hubo algún problema (token null o error)
+    final log = buf.toString();
+    final hasIssue = fcmToken == null || log.contains('error') || log.contains('NULL');
+    if (hasIssue && mounted) {
+      await _showFcmDiagnosticsDialog(log);
+    }
+  }
+
+  Future<void> _showFcmDiagnosticsDialog(String log) async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: _kSurface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.bug_report_rounded, color: Color(0xFFFFA726), size: 22),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'FCM Debug Log',
+                style: TextStyle(color: Color(0xFFEEEEF2), fontSize: 15, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: SelectableText(
+            log,
+            style: const TextStyle(
+              color: Color(0xFFEEEEF2),
+              fontSize: 12,
+              fontFamily: 'monospace',
+              height: 1.6,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: log));
+            },
+            child: const Text('Copiar', style: TextStyle(color: Color(0xFF6366F1))),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF6366F1),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
     );
   }
 

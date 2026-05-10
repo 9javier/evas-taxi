@@ -23,7 +23,9 @@
       "Bash(Out-Null)",
       "PowerShell(New-Item *)",
       "Bash(dir /s /b *.dart)",
-      "PowerShell(head *)"
+      "PowerShell(head *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\Dell\\\\StudioProjects\\\\evas_taxi_driver\" -Directory)",
+      "Bash(Select-Object Name)"
     ]
   }
 }
