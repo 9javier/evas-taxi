@@ -78,6 +78,12 @@ class _MainTabsScreenState extends State<MainTabsScreen> with WidgetsBindingObse
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      // Re-establecer presencia RTDB al volver del fondo.
+      // En iOS el WebSocket de RTDB cae al bloquear la pantalla; esto lo restaura
+      // en cuanto el driver desbloquea, cancelando la actualización offline pendiente.
+      if (driverDocId != null) {
+        DriverPresenceService.instance.start(driverDocId!);
+      }
       // 1. Procesar notificaciones que quedaron en la cola en memoria
       tryHandlePendingNotifications();
       // 2. Consultar Firestore por solicitudes pendientes asignadas a este driver

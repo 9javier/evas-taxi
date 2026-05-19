@@ -192,24 +192,7 @@ Future<void> main() async {
     debugLog += "\n6. Lanzando app principal...";
     runApp(const RootApp());
 
-  } catch (e, stack) {
-    debugLog += "\n🔥 ERROR CRÍTICO: $e";
-    var log = "LOG DE ERROR:\n$debugLog\n\nSTACK:\n$stack";
-    runApp(MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: Scaffold(
-        backgroundColor: Colors.white,
-        body: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(16),
-            child: Text(
-              log,
-              style: const TextStyle(color: Colors.red, fontSize: 12),
-            ),
-          ),
-        ),
-      ),
-    ));
+  } catch (_) {
   }
 }
 
