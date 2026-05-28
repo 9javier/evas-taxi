@@ -2053,6 +2053,14 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       _loadActiveVehicle();
       _subscribeOnlineStatus();
       _subscribeBackgroundMessages(_driverId!);
+      // Si _getCurrentLocation ya corrió pero no encontró viaje (porque _driverId era null),
+      // intentar restaurar ahora que tenemos el ID.
+      final hasTravelData = _passengerLatLng != null || _destinationLatLng != null;
+      final hasTravelId = (activeTravelIdNotifier.value?.isNotEmpty ?? false) ||
+          (widget.travelId?.isNotEmpty ?? false);
+      if (!hasTravelData && !hasTravelId) {
+        await _checkActiveTripAndRestore();
+      }
     }
   }
 
