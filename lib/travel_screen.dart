@@ -1906,10 +1906,13 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   Future<void> _startQueuedTrip(String queuedId) async {
     if (!mounted) return;
 
-    // Capturar navigator antes del primer await para evitar usar context despuÃ©s de gaps asÃ­ncronos
-    final nav = Navigator.of(context);
+    // Capturar el root navigator antes del primer await. showDialog usa rootNavigator:true
+    // por defecto, por lo que nav debe apuntar al mismo navigator para poder hacer pop.
+    // No se verifica mounted antes del pop porque el widget puede desmontarse mientras
+    // esperamos (el padre reconstruye al poner activeTravelIdNotifier=null), pero el
+    // root navigator sigue vivo y el diálogo sigue en su stack.
+    final nav = Navigator.of(context, rootNavigator: true);
 
-    // Mostrar popup informativo que se auto-descarta
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -1918,21 +1921,18 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
     );
 
     try {
-      // El viaje ya estÃ¡ en travels con status 'queued' (lo puso ahÃ­ acceptTravel con queueMode:true).
-      // La CF promoteQueuedTravel lo promueve a 'accepted' y actualiza currentTravelId del driver.
-      // activeTripsCount ya fue decrementado por completeTravel al terminar el 1er viaje.
       final driverId = _driverId ?? '';
       if (driverId.isNotEmpty) {
         final ok = await FirebaseActionService.promoteQueuedTravel(queuedId, driverId);
-        if (!ok) debugPrint('[startQueuedTrip] promoteQueuedTravel fallÃ³ para $queuedId');
+        if (!ok) debugPrint('[startQueuedTrip] promoteQueuedTravel falló para $queuedId');
       }
     } catch (e) {
+      debugPrint('[startQueuedTrip] excepción: $e');
     }
 
     await Future.delayed(const Duration(milliseconds: 1600));
-    if (mounted && nav.canPop()) nav.pop();
+    if (nav.canPop()) nav.pop();
 
-    // Cargar el viaje como el nuevo viaje activo
     activeTravelIdNotifier.value = queuedId;
     _loadingTravelData = false;
     _notifiedDriverNear = false;
