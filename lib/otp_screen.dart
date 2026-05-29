@@ -340,12 +340,12 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       appBar: _buildAppBar(),
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               _buildHeader(),
-              const SizedBox(height: 40),
+              const SizedBox(height: 20),
               _buildOtpBoxes(),
               const SizedBox(height: 28),
               if (_error.isNotEmpty) ...[
@@ -386,8 +386,8 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
     return Column(
       children: [
         Container(
-          width: 72,
-          height: 72,
+          width: 52,
+          height: 52,
           decoration: BoxDecoration(
             color: _kSurface,
             shape: BoxShape.circle,
@@ -395,19 +395,19 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
             boxShadow: [
               BoxShadow(
                 color: _kAccent.withValues(alpha: 0.14),
-                blurRadius: 24,
-                spreadRadius: 3,
+                blurRadius: 18,
+                spreadRadius: 2,
               ),
             ],
           ),
-          child: const Icon(Icons.sms_rounded, color: _kAccent, size: 34),
-        ),
-        const SizedBox(height: 20),
-        const Text(
-          'Code sent',
-          style: TextStyle(color: _kText, fontSize: 22, fontWeight: FontWeight.w700),
+          child: const Icon(Icons.sms_rounded, color: _kAccent, size: 24),
         ),
         const SizedBox(height: 10),
+        const Text(
+          'Code sent',
+          style: TextStyle(color: _kText, fontSize: 18, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 6),
         RichText(
           textAlign: TextAlign.center,
           text: TextSpan(
@@ -438,7 +438,6 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
             focusNode: _nodes[i],
             keyboardType: TextInputType.number,
             textAlign: TextAlign.center,
-            maxLength: 1,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             style: const TextStyle(
               color: _kText,
@@ -463,9 +462,17 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
               ),
             ),
             onChanged: (value) {
-              if (value.length == 1 && i < 5) _nodes[i + 1].requestFocus();
-              if (value.isEmpty && i > 0)      _nodes[i - 1].requestFocus();
-              // Auto-verificar al completar los 6 dígitos
+              if (value.length > 1) {
+                // Distribuir dígitos pegados a partir de este box
+                for (int j = 0; j < value.length && (i + j) < 6; j++) {
+                  _boxes[i + j].text = value[j];
+                }
+                final lastIdx = (i + value.length - 1).clamp(0, 5);
+                _nodes[lastIdx].requestFocus();
+              } else {
+                if (value.length == 1 && i < 5) _nodes[i + 1].requestFocus();
+                if (value.isEmpty && i > 0)     _nodes[i - 1].requestFocus();
+              }
               if (_otp.length == 6 && !_autoVerifying) {
                 _autoVerifying = true;
                 _verifyOtp().whenComplete(() => _autoVerifying = false);

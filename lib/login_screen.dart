@@ -171,13 +171,13 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
       backgroundColor: _kBg,
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const SizedBox(height: 40),
+              const SizedBox(height: 12),
               _buildHero(),
-              const SizedBox(height: 48),
+              const SizedBox(height: 24),
               _buildCard(),
               if (_error.isNotEmpty) ...[
                 const SizedBox(height: 12),
@@ -199,8 +199,8 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
       children: [
         // Icono con glow indigo
         Container(
-          width: 96,
-          height: 96,
+          width: 72,
+          height: 72,
           decoration: BoxDecoration(
             color: _kSurface,
             shape: BoxShape.circle,
@@ -208,24 +208,24 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
             boxShadow: [
               BoxShadow(
                 color: _kAccent.withValues(alpha: 0.22),
-                blurRadius: 36,
-                spreadRadius: 6,
+                blurRadius: 28,
+                spreadRadius: 4,
               ),
             ],
           ),
-          child: const Icon(Icons.local_taxi_rounded, color: _kAccent, size: 46),
+          child: const Icon(Icons.local_taxi_rounded, color: _kAccent, size: 34),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 14),
         const Text(
           "EVA'S TAXI",
           style: TextStyle(
             color: _kAccent,
-            fontSize: 28,
+            fontSize: 22,
             fontWeight: FontWeight.w800,
             letterSpacing: 4.5,
           ),
         ),
-        const SizedBox(height: 5),
+        const SizedBox(height: 3),
         const Text(
           'Driver App',
           style: TextStyle(
@@ -235,7 +235,7 @@ class _DriverLoginScreenState extends State<DriverLoginScreen> {
             letterSpacing: 2.5,
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 8),
         // Badge Atlanta
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
