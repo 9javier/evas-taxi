@@ -50,12 +50,19 @@ Future<void> _handleSlideAccept(BuildContext context, String travelId) async {
       tabsIndexNotifier.value = 0;
     } else {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not accept the trip. Please try again.')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: const Text('Trip no longer available...', style: TextStyle(color: Colors.white)),
+          backgroundColor: const Color(0xFFF97316),
+          duration: const Duration(seconds: 5),
+        ));
       }
     }
   } catch (e) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('An error occurred while accepting the trip.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Trip no longer available...'),
+        duration: Duration(seconds: 5),
+      ));
     }
   }
 }
@@ -81,12 +88,19 @@ Future<void> _handleSlideQueue(BuildContext context, String travelId) async {
       tabsIndexNotifier.value = 0;
     } else {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('This trip is no longer available or could not be queued.')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: const Text('Trip no longer available...', style: TextStyle(color: Colors.white)),
+          backgroundColor: const Color(0xFFF97316),
+          duration: const Duration(seconds: 5),
+        ));
       }
     }
   } catch (e) {
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('An error occurred while queueing the trip.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Trip no longer available...'),
+        duration: Duration(seconds: 5),
+      ));
     }
   }
 }

@@ -2196,6 +2196,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       _currentPosition = pos;
       _driverLatLng = LatLng(pos.latitude, pos.longitude);
       _updateDriverMarker();
+      _pushInitialLocationToFirestore(pos);
       if (_mapController != null && !_mapCenteredInitially) {
         try {
           await _mapController!.animateCamera(CameraUpdate.newLatLngZoom(_driverLatLng, 16));
@@ -2227,6 +2228,17 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
         _locationError = 'Error retrieving location: $e';
       });
     }
+  }
+
+  /// Escribe lat/lng en drivers/{id} una sola vez al abrir la pantalla.
+  void _pushInitialLocationToFirestore(Position pos) {
+    final docId = _driverId ?? driverDocId;
+    if (docId == null || docId.isEmpty) return;
+    FirebaseFirestore.instance
+        .collection('drivers')
+        .doc(docId)
+        .update({'lat': pos.latitude, 'lng': pos.longitude})
+        .catchError((_) {});
   }
 
   /// Abre ajustes de ubicaciÃ³n del sistema si es posible.

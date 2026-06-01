@@ -430,9 +430,9 @@ class _DriverOtpScreenState extends State<DriverOtpScreen> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(6, (i) {
         return Container(
-          width: 50,
+          width: 48,
           height: 70,
-          margin: const EdgeInsets.symmetric(horizontal: 3),
+          margin: const EdgeInsets.symmetric(horizontal: 2),
           child: TextField(
             controller: _boxes[i],
             focusNode: _nodes[i],
