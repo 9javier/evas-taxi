@@ -1837,7 +1837,16 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
   void _showChatBottomSheet() {
     final travelId = widget.travelId ?? activeTravelIdNotifier.value ?? '';
     final driverId = _driverId ?? '';
-    if (travelId.isEmpty || driverId.isEmpty) return;
+    debugPrint('[CHAT DEBUG] _showChatBottomSheet → widget.travelId="${widget.travelId}" | activeTravelIdNotifier="${activeTravelIdNotifier.value}"');
+    debugPrint('[CHAT DEBUG] _showChatBottomSheet → travelId resuelto="$travelId" | _driverId="$driverId"');
+    if (travelId.isEmpty || driverId.isEmpty) {
+      debugPrint('[CHAT DEBUG] _showChatBottomSheet → ABORTADO: travelId o driverId vacío');
+      return;
+    }
+    // Usar el Firebase Auth UID para identificar mensajes propios, ya que senderId
+    // se guarda con el Auth UID (no con el driverDocId del documento de Firestore).
+    final authUid = FirebaseAuth.instance.currentUser?.uid ?? driverId;
+    debugPrint('[CHAT DEBUG] _showChatBottomSheet → authUid="$authUid" | driverDocId="$driverId" | coinciden=${authUid == driverId}');
     setState(() => _hasNewChatMessage = false);
     showModalBottomSheet(
       context: context,
@@ -1845,7 +1854,7 @@ class _TravelScreenState extends State<TravelScreen> with SingleTickerProviderSt
       backgroundColor: Colors.transparent,
       builder: (_) => SizedBox(
         height: MediaQuery.of(context).size.height * 0.75,
-        child: _DriverChatSheet(travelId: travelId, currentUserId: driverId),
+        child: _DriverChatSheet(travelId: travelId, currentUserId: authUid),
       ),
     );
   }

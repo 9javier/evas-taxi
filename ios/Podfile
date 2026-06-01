@@ -23,6 +23,10 @@ end
 
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
 
+# Deshabilitar la integración experimental de SPM de Flutter para evitar
+# conflictos de versión del Firebase iOS SDK con cloud_firestore 6.x
+ENV['FLUTTER_USE_PACKAGE_SWIFT_PACKAGE_MANAGER'] = 'false'
+
 flutter_ios_podfile_setup
 
 target 'Runner' do
